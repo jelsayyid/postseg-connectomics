@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "connectomics-pipeline"
+version = "0.1.0"
+description = "Post-segmentation systems pipeline for large-scale connectomics"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-image>=0.21",
+    "networkx>=3.1",
+    "h5py>=3.8",
+    "zarr>=2.14",
+    "pyyaml>=6.0",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+skeleton = ["kimimaro>=4.0"]
+visualization = ["matplotlib>=3.7", "navis>=1.4"]
+neuroglancer = ["cloud-volume>=8.0"]
+export = ["pyarrow>=12.0"]
+dev = ["pytest>=7.0", "black>=23.0", "mypy>=1.0"]
+all = [
+    "connectomics-pipeline[skeleton,visualization,neuroglancer,export,dev]",
+]
+
+[project.scripts]
+connectomics-pipeline = "connectomics_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["connectomics_pipeline*"]
+
+[tool.black]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
