@@ -15,7 +15,7 @@ All individual modules have unit tests covering their core logic:
 
 ## Phase 2: Coverage Analysis & Gap Filling
 
-**Status:** Next up
+**Status:** COMPLETE (68% -> 83%, 72 -> 167 tests)
 
 **Tasks:**
 1. Install `pytest-cov` and run coverage analysis
@@ -92,8 +92,8 @@ All individual modules have unit tests covering their core logic:
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 1 | Unit test baseline | Complete |
-| 2 | Coverage analysis & gap filling | **Next** |
-| 3 | Edge cases & robustness | Planned |
+| 2 | Coverage analysis & gap filling | **Complete** |
+| 3 | Edge cases & robustness | **Next** |
 | 4 | Parameter sensitivity | Planned |
 | 5 | Scalability & performance | Planned |
 | 6 | Realistic integration testing | Planned |
