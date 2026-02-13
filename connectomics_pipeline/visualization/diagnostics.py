@@ -48,7 +48,7 @@ def connection_statistics(
         Dict with counts, score distributions, etc.
     """
     if not candidates:
-        return {"total": 0}
+        return {"total": 0, "accepted": 0, "rejected": 0, "ambiguous": 0, "accept_rate": 0.0}
 
     scores = np.array([c.composite_score for c in candidates])
     distances = np.array([c.gap_distance for c in candidates])

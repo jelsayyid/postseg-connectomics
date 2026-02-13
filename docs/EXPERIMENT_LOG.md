@@ -180,9 +180,76 @@ This document tracks testing experiments, results, and observations as the pipel
 - All 167 tests run in ~16 seconds
 
 **Action Items:**
-- [ ] Begin Phase 3: edge case & robustness testing
+- [x] Begin Phase 3: edge case & robustness testing (see Experiment 4)
 - [ ] Consider adding `kimimaro` to dev deps for skeleton coverage
 - [ ] Set up CI (GitHub Actions) to run tests on push
+
+---
+
+## Experiment 4: Edge Case & Robustness Testing (Phase 3)
+
+**Date:** 2026-02-13
+**Objective:** Verify pipeline handles degenerate, extreme, and boundary-condition inputs without crashing.
+
+**Setup:**
+- Added `tests/test_edge_cases.py` with 51 targeted tests across 11 categories
+- Tests exercise the full pipeline and individual modules with pathological inputs
+
+**Results:**
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Total tests | 167 | **218** | +51 |
+| Overall coverage | 83% | **85%** | +2pp |
+| Statements missed | 294 | 263 | -31 |
+
+### Bug Found and Fixed
+
+**`connection_statistics()` crash on empty candidates** (`diagnostics.py:51`)
+- When the pipeline produces zero candidates (e.g. empty volume, all fragments too far apart), `connection_statistics()` returned `{"total": 0}` without `accepted`/`rejected`/`ambiguous` keys
+- `Pipeline._log_summary()` then crashed with `KeyError: 'accepted'`
+- **Fix:** Added missing keys to the empty-case return value
+- **Impact:** This would have crashed on any real dataset where a chunk produced no candidates
+
+### Test Categories (51 tests):
+
+| Category | Tests | Key Findings |
+|----------|-------|-------------|
+| Empty/degenerate volumes | 3 | Found the `connection_statistics` bug |
+| Extreme fragment counts | 2 | 50+ labels handled correctly, single giant label OK |
+| Fragment extraction edge cases | 6 | Non-contiguous same-label correctly splits, boundary detection works at corners/edges, min_voxel threshold exact |
+| Scoring edge cases | 7 | Negative distance, zero max distance, zero radii, coincident endpoints — all handled gracefully |
+| Validation rule edge cases | 9 | Missing fragments → AMBIGUOUS, boundary thresholds correct, high-degree branching rejected |
+| Assembly edge cases | 3 | No accepted → no structures, ambiguous flagging works |
+| Graph builder edge cases | 4 | Empty store, single fragment, beyond-distance, unknown method |
+| Candidate generator edge cases | 2 | No-endpoint fallback to centroids |
+| Validation report edge cases | 2 | Empty report, all-rejected |
+| Types edge cases | 8 | Zero-volume bbox, touching overlaps, path length, gap distance |
+| Full pipeline edge cases | 5 | Empty volume, distant fragments, touching fragments, strict rejection, no-rules |
+
+### Coverage improvements from edge cases:
+
+| Module | Before | After |
+|--------|--------|-------|
+| `utils/types.py` | 94% | **100%** |
+| `visualization/diagnostics.py` | 87% | **100%** |
+| `candidates/scoring.py` | 87% | **100%** |
+| `candidates/continuity.py` | 94% | **100%** |
+| `candidates/proximity.py` | 90% | **100%** |
+| `validation/rules.py` | 89% | **96%** |
+| `assembly/assembler.py` | 90% | **96%** |
+| `fragments/store.py` | 90% | **96%** |
+
+**Observations:**
+- The `connection_statistics` bug is exactly the kind of issue that would surface on real data — segmentation volumes often have sparse regions producing zero candidates in some chunks
+- All scoring functions handle degenerate inputs (zeros, negatives, infinities) gracefully
+- The conservative validation approach works correctly: missing fragments → AMBIGUOUS (not crash), no rules → all AMBIGUOUS (uncertainty preserved)
+- Pipeline correctly produces zero structures when inputs are degenerate (no false positives)
+
+**Action Items:**
+- [ ] Begin Phase 4: parameter sensitivity analysis
+- [ ] Begin Phase 7: set up GitHub Actions CI
+- [ ] Test with real lab data (pending mentor providing a sample volume)
 
 ---
 

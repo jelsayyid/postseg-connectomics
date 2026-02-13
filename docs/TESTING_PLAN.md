@@ -93,8 +93,8 @@ All individual modules have unit tests covering their core logic:
 |-------|-------|--------|
 | 1 | Unit test baseline | Complete |
 | 2 | Coverage analysis & gap filling | **Complete** |
-| 3 | Edge cases & robustness | **Next** |
-| 4 | Parameter sensitivity | Planned |
+| 3 | Edge cases & robustness | **Complete** |
+| 4 | Parameter sensitivity | **Next** |
 | 5 | Scalability & performance | Planned |
 | 6 | Realistic integration testing | Planned |
 | 7 | Regression suite & CI | Planned |
