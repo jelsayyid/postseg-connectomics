@@ -55,7 +55,6 @@ from connectomics_pipeline.validation.rules import (
 )
 from connectomics_pipeline.assembly.assembler import Assembler
 
-
 # ===========================================================================
 # Helpers
 # ===========================================================================
@@ -65,16 +64,21 @@ def _quick_pipeline_config(tmp_path, **overrides):
     """Build a minimal pipeline config for edge-case tests."""
     defaults = dict(
         input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(64, 64, 64), chunk_overlap=(0, 0, 0),
+            format="numpy",
+            resolution=(30.0, 8.0, 8.0),
+            chunk_size=(64, 64, 64),
+            chunk_overlap=(0, 0, 0),
         ),
         fragments=FragmentConfig(min_voxel_count=5, extract_skeletons=False, extract_meshes=False),
         graph=GraphConfig(max_distance_nm=5000.0),
         candidates=CandidateConfig(
-            max_endpoint_distance_nm=5000.0, min_alignment_score=0.0, min_composite_score=0.0,
+            max_endpoint_distance_nm=5000.0,
+            min_alignment_score=0.0,
+            min_composite_score=0.0,
         ),
         validation=ValidationConfig(
-            accept_threshold=0.3, reject_threshold=0.1,
+            accept_threshold=0.3,
+            reject_threshold=0.1,
             rules=[RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 5000.0})],
         ),
         assembly=AssemblyConfig(min_structure_fragments=2),
@@ -88,7 +92,9 @@ def _quick_pipeline_config(tmp_path, **overrides):
 def _make_frag(fid, label, voxels, centroid, endpoints=None, skeleton=None):
     c = np.array(centroid, dtype=float)
     return Fragment(
-        fragment_id=fid, label_id=label, voxel_count=voxels,
+        fragment_id=fid,
+        label_id=label,
+        voxel_count=voxels,
         bounding_box=BoundingBox(c - 50, c + 50),
         centroid=c,
         endpoints=endpoints or [c],
@@ -106,10 +112,15 @@ class TestEmptyVolume:
 
     def test_all_zeros(self, tmp_path):
         vol = np.zeros((32, 32, 32), dtype=np.uint32)
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(32, 32, 32), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(32, 32, 32),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(30.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -121,10 +132,15 @@ class TestEmptyVolume:
         """One labeled voxel, below min_voxel_count threshold."""
         vol = np.zeros((16, 16, 16), dtype=np.uint32)
         vol[8, 8, 8] = 1
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(16, 16, 16), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(16, 16, 16),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(30.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -134,10 +150,15 @@ class TestEmptyVolume:
         """Only one fragment — can't form a structure (min_structure_fragments=2)."""
         vol = np.zeros((16, 16, 16), dtype=np.uint32)
         vol[3:13, 3:13, 3:13] = 1
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(16, 16, 16), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(16, 16, 16),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(30.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -160,12 +181,17 @@ class TestManyLabels:
         for z in range(0, 32, 4):
             for y in range(0, 32, 4):
                 for x in range(0, 32, 4):
-                    vol[z:z+2, y:y+2, x:x+2] = label
+                    vol[z : z + 2, y : y + 2, x : x + 2] = label
                     label += 1
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(8.0, 8.0, 8.0),
-            chunk_size=(32, 32, 32), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(8.0, 8.0, 8.0),
+                chunk_size=(32, 32, 32),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(8.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -175,10 +201,15 @@ class TestManyLabels:
     def test_one_giant_label(self, tmp_path):
         """Single label fills the entire volume."""
         vol = np.ones((16, 16, 16), dtype=np.uint32)
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(16, 16, 16), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(16, 16, 16),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(30.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -234,7 +265,9 @@ class TestFragmentExtractionEdgeCases:
         vol = np.zeros((10, 10, 10), dtype=np.uint32)
         # Place exactly 10 voxels
         vol[0, 0, 0:10] = 1
-        extractor = FragmentExtractor(FragmentConfig(min_voxel_count=10), resolution=(8.0, 8.0, 8.0))
+        extractor = FragmentExtractor(
+            FragmentConfig(min_voxel_count=10), resolution=(8.0, 8.0, 8.0)
+        )
         frags = extractor.extract_from_chunk(vol, (0, 0, 0))
         assert len(frags) == 1
 
@@ -242,7 +275,9 @@ class TestFragmentExtractionEdgeCases:
         """Fragment with min_voxel_count-1 voxels should be excluded."""
         vol = np.zeros((10, 10, 10), dtype=np.uint32)
         vol[0, 0, 0:9] = 1
-        extractor = FragmentExtractor(FragmentConfig(min_voxel_count=10), resolution=(8.0, 8.0, 8.0))
+        extractor = FragmentExtractor(
+            FragmentConfig(min_voxel_count=10), resolution=(8.0, 8.0, 8.0)
+        )
         frags = extractor.extract_from_chunk(vol, (0, 0, 0))
         assert len(frags) == 0
 
@@ -301,10 +336,13 @@ class TestScoringEdgeCases:
 
 def _make_candidate(cid=0, ep_a=(0, 0, 0), ep_b=(0, 0, 100), score=0.5, align=0.5):
     return CandidateConnection(
-        candidate_id=cid, fragment_a=0, fragment_b=1,
+        candidate_id=cid,
+        fragment_a=0,
+        fragment_b=1,
         endpoint_a=np.array(ep_a, dtype=float),
         endpoint_b=np.array(ep_b, dtype=float),
-        composite_score=score, alignment_score=align,
+        composite_score=score,
+        alignment_score=align,
     )
 
 
@@ -432,19 +470,29 @@ class TestAssemblyEdgeCases:
 
         # Connection 0 is accepted (links 0 and 1)
         c_accepted = CandidateConnection(
-            candidate_id=0, fragment_a=0, fragment_b=1,
-            endpoint_a=np.array([0, 0, 100.0]), endpoint_b=np.array([0, 0, 100.0]),
-            composite_score=0.9, status=ConnectionStatus.ACCEPTED,
+            candidate_id=0,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.array([0, 0, 100.0]),
+            endpoint_b=np.array([0, 0, 100.0]),
+            composite_score=0.9,
+            status=ConnectionStatus.ACCEPTED,
         )
         # Connection 1 is ambiguous (involves fragment 1)
         c_ambiguous = CandidateConnection(
-            candidate_id=1, fragment_a=1, fragment_b=2,
-            endpoint_a=np.array([0, 0, 300.0]), endpoint_b=np.array([0, 0, 300.0]),
-            composite_score=0.5, status=ConnectionStatus.AMBIGUOUS,
+            candidate_id=1,
+            fragment_a=1,
+            fragment_b=2,
+            endpoint_a=np.array([0, 0, 300.0]),
+            endpoint_b=np.array([0, 0, 300.0]),
+            composite_score=0.5,
+            status=ConnectionStatus.AMBIGUOUS,
         )
         report = ValidationReport(
             results={0: [], 1: []},
-            accepted=[0], rejected=[], ambiguous=[1],
+            accepted=[0],
+            rejected=[],
+            ambiguous=[1],
         )
         structures = assembler.assemble(graph, [c_accepted, c_ambiguous], report, store)
         assert len(structures) == 1
@@ -530,8 +578,7 @@ class TestValidationReportEdgeCases:
         """Every candidate has at least one hard REJECT."""
         candidates = [_make_candidate(i) for i in range(5)]
         results = {
-            i: [ValidationResult("r", ConnectionStatus.REJECTED, 0.1, "fail")]
-            for i in range(5)
+            i: [ValidationResult("r", ConnectionStatus.REJECTED, 0.1, "fail")] for i in range(5)
         }
         report = build_report(results, candidates)
         assert len(report.rejected) == 5
@@ -600,10 +647,15 @@ class TestTypesEdgeCases:
 class TestPipelineEdgeCases:
     def test_volume_with_only_background(self, tmp_path):
         vol = np.zeros((16, 16, 16), dtype=np.uint32)
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(16, 16, 16), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(16, 16, 16),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(30.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -614,10 +666,16 @@ class TestPipelineEdgeCases:
         vol = np.zeros((16, 16, 64), dtype=np.uint32)
         vol[6:10, 6:10, 0:4] = 1
         vol[6:10, 6:10, 60:64] = 2
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(30.0, 8.0, 8.0),
-            chunk_size=(16, 16, 64), chunk_overlap=(0, 0, 0),
-        ), graph=GraphConfig(max_distance_nm=100.0))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(16, 16, 64),
+                chunk_overlap=(0, 0, 0),
+            ),
+            graph=GraphConfig(max_distance_nm=100.0),
+        )
         reader = NumpyReader(vol, resolution=(30.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -629,10 +687,15 @@ class TestPipelineEdgeCases:
         vol = np.zeros((16, 16, 32), dtype=np.uint32)
         vol[4:12, 4:12, 2:14] = 1
         vol[4:12, 4:12, 16:28] = 2
-        config = _quick_pipeline_config(tmp_path, input=InputConfig(
-            format="numpy", resolution=(8.0, 8.0, 8.0),
-            chunk_size=(16, 16, 32), chunk_overlap=(0, 0, 0),
-        ))
+        config = _quick_pipeline_config(
+            tmp_path,
+            input=InputConfig(
+                format="numpy",
+                resolution=(8.0, 8.0, 8.0),
+                chunk_size=(16, 16, 32),
+                chunk_overlap=(0, 0, 0),
+            ),
+        )
         reader = NumpyReader(vol, resolution=(8.0, 8.0, 8.0))
         pipeline = Pipeline(config)
         structures = pipeline.run(reader=reader)
@@ -647,11 +710,14 @@ class TestPipelineEdgeCases:
         config = _quick_pipeline_config(
             tmp_path,
             input=InputConfig(
-                format="numpy", resolution=(8.0, 8.0, 8.0),
-                chunk_size=(16, 16, 32), chunk_overlap=(0, 0, 0),
+                format="numpy",
+                resolution=(8.0, 8.0, 8.0),
+                chunk_size=(16, 16, 32),
+                chunk_overlap=(0, 0, 0),
             ),
             validation=ValidationConfig(
-                accept_threshold=0.99, reject_threshold=0.98,
+                accept_threshold=0.99,
+                reject_threshold=0.98,
                 rules=[RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 10.0})],
             ),
         )
@@ -669,11 +735,14 @@ class TestPipelineEdgeCases:
         config = _quick_pipeline_config(
             tmp_path,
             input=InputConfig(
-                format="numpy", resolution=(8.0, 8.0, 8.0),
-                chunk_size=(16, 16, 32), chunk_overlap=(0, 0, 0),
+                format="numpy",
+                resolution=(8.0, 8.0, 8.0),
+                chunk_size=(16, 16, 32),
+                chunk_overlap=(0, 0, 0),
             ),
             validation=ValidationConfig(
-                accept_threshold=0.5, reject_threshold=0.2,
+                accept_threshold=0.5,
+                reject_threshold=0.2,
                 rules=[],  # No rules
             ),
         )

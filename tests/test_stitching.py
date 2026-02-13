@@ -8,7 +8,6 @@ import pytest
 from connectomics_pipeline.fragments.stitching import ChunkStitcher, UnionFind
 from connectomics_pipeline.utils.types import BoundingBox, Fragment, Skeleton
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -107,8 +106,12 @@ class TestChunkStitcher:
         """Non-boundary fragments are not merged."""
         stitcher = ChunkStitcher()
         frags = [
-            make_fragment(0, 1, [0, 0, 0], [100, 100, 100], is_boundary=False, chunk_origin=(0, 0, 0)),
-            make_fragment(1, 1, [0, 0, 100], [100, 100, 200], is_boundary=False, chunk_origin=(0, 0, 128)),
+            make_fragment(
+                0, 1, [0, 0, 0], [100, 100, 100], is_boundary=False, chunk_origin=(0, 0, 0)
+            ),
+            make_fragment(
+                1, 1, [0, 0, 100], [100, 100, 200], is_boundary=False, chunk_origin=(0, 0, 128)
+            ),
         ]
         result = stitcher.stitch(frags, [((0, 0, 0), (0, 0, 128))])
         assert len(result) == 2
@@ -117,8 +120,12 @@ class TestChunkStitcher:
         """Boundary fragments with same label and overlapping bbox get merged."""
         stitcher = ChunkStitcher(overlap=(8, 16, 16))
         frags = [
-            make_fragment(0, 1, [0, 0, 90], [100, 100, 128], is_boundary=True, chunk_origin=(0, 0, 0)),
-            make_fragment(1, 1, [0, 0, 112], [100, 100, 200], is_boundary=True, chunk_origin=(0, 0, 128)),
+            make_fragment(
+                0, 1, [0, 0, 90], [100, 100, 128], is_boundary=True, chunk_origin=(0, 0, 0)
+            ),
+            make_fragment(
+                1, 1, [0, 0, 112], [100, 100, 200], is_boundary=True, chunk_origin=(0, 0, 128)
+            ),
         ]
         result = stitcher.stitch(frags, [((0, 0, 0), (0, 0, 128))])
         # Should merge into 1
@@ -128,8 +135,12 @@ class TestChunkStitcher:
         """Boundary fragments with different labels should not merge."""
         stitcher = ChunkStitcher()
         frags = [
-            make_fragment(0, 1, [0, 0, 90], [100, 100, 128], is_boundary=True, chunk_origin=(0, 0, 0)),
-            make_fragment(1, 2, [0, 0, 112], [100, 100, 200], is_boundary=True, chunk_origin=(0, 0, 128)),
+            make_fragment(
+                0, 1, [0, 0, 90], [100, 100, 128], is_boundary=True, chunk_origin=(0, 0, 0)
+            ),
+            make_fragment(
+                1, 2, [0, 0, 112], [100, 100, 200], is_boundary=True, chunk_origin=(0, 0, 128)
+            ),
         ]
         result = stitcher.stitch(frags, [((0, 0, 0), (0, 0, 128))])
         assert len(result) == 2
@@ -139,7 +150,9 @@ class TestChunkStitcher:
         stitcher = ChunkStitcher()
         frags = [
             make_fragment(0, 1, [0, 0, 0], [50, 50, 50], is_boundary=True, chunk_origin=(0, 0, 0)),
-            make_fragment(1, 1, [60, 60, 200], [100, 100, 300], is_boundary=True, chunk_origin=(0, 0, 128)),
+            make_fragment(
+                1, 1, [60, 60, 200], [100, 100, 300], is_boundary=True, chunk_origin=(0, 0, 128)
+            ),
         ]
         result = stitcher.stitch(frags, [((0, 0, 0), (0, 0, 128))])
         assert len(result) == 2
@@ -148,23 +161,33 @@ class TestChunkStitcher:
         """Verify merged fragment has correct combined properties."""
         stitcher = ChunkStitcher()
         frags = [
-            make_fragment(0, 1, [0, 0, 90], [100, 100, 130], is_boundary=True, chunk_origin=(0, 0, 0)),
-            make_fragment(1, 1, [0, 0, 110], [100, 100, 200], is_boundary=True, chunk_origin=(0, 0, 128)),
+            make_fragment(
+                0, 1, [0, 0, 90], [100, 100, 130], is_boundary=True, chunk_origin=(0, 0, 0)
+            ),
+            make_fragment(
+                1, 1, [0, 0, 110], [100, 100, 200], is_boundary=True, chunk_origin=(0, 0, 128)
+            ),
         ]
         # Give different voxel counts
         frags[0] = Fragment(
-            fragment_id=0, label_id=1, voxel_count=200,
+            fragment_id=0,
+            label_id=1,
+            voxel_count=200,
             bounding_box=BoundingBox(np.array([0, 0, 90.0]), np.array([100, 100, 130.0])),
             centroid=np.array([50, 50, 110.0]),
             endpoints=[np.array([50, 50, 90.0])],
-            is_boundary=True, chunk_origin=(0, 0, 0),
+            is_boundary=True,
+            chunk_origin=(0, 0, 0),
         )
         frags[1] = Fragment(
-            fragment_id=1, label_id=1, voxel_count=300,
+            fragment_id=1,
+            label_id=1,
+            voxel_count=300,
             bounding_box=BoundingBox(np.array([0, 0, 110.0]), np.array([100, 100, 200.0])),
             centroid=np.array([50, 50, 155.0]),
             endpoints=[np.array([50, 50, 200.0])],
-            is_boundary=True, chunk_origin=(0, 0, 128),
+            is_boundary=True,
+            chunk_origin=(0, 0, 128),
         )
         result = stitcher.stitch(frags, [((0, 0, 0), (0, 0, 128))])
         assert len(result) == 1

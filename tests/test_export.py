@@ -27,7 +27,6 @@ from connectomics_pipeline.utils.types import (
 )
 from connectomics_pipeline.fragments.store import FragmentStore
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

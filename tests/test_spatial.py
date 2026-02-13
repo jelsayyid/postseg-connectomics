@@ -15,7 +15,6 @@ from connectomics_pipeline.utils.spatial import (
     euclidean_distance,
 )
 
-
 # ---------------------------------------------------------------------------
 # euclidean_distance
 # ---------------------------------------------------------------------------
@@ -92,8 +91,16 @@ class TestEstimateCurvature:
     def test_sharp_turn(self):
         # Straight in z, then sharp turn in y
         nodes = np.array(
-            [[0, 0, 0], [0, 0, 1], [0, 0, 2], [0, 0, 3],
-             [0, 1, 3], [0, 2, 3], [0, 3, 3], [0, 4, 3]],
+            [
+                [0, 0, 0],
+                [0, 0, 1],
+                [0, 0, 2],
+                [0, 0, 3],
+                [0, 1, 3],
+                [0, 2, 3],
+                [0, 3, 3],
+                [0, 4, 3],
+            ],
             dtype=float,
         )
         c = estimate_curvature(nodes, 4, window=2)

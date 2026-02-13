@@ -21,7 +21,6 @@ from connectomics_pipeline.utils.config import (
     _build_dataclass,
 )
 
-
 # ---------------------------------------------------------------------------
 # load_config
 # ---------------------------------------------------------------------------
@@ -38,13 +37,17 @@ class TestLoadConfig:
 
     def test_load_with_input_section(self, tmp_path):
         cfg_path = tmp_path / "input.yaml"
-        cfg_path.write_text(yaml.dump({
-            "input": {
-                "format": "zarr",
-                "path": "/data/vol.zarr",
-                "resolution": [40.0, 4.0, 4.0],
-            }
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "input": {
+                        "format": "zarr",
+                        "path": "/data/vol.zarr",
+                        "resolution": [40.0, 4.0, 4.0],
+                    }
+                }
+            )
+        )
         config = load_config(cfg_path)
         assert config.input.format == "zarr"
         assert config.input.path == "/data/vol.zarr"
@@ -53,16 +56,20 @@ class TestLoadConfig:
 
     def test_load_with_validation_rules(self, tmp_path):
         cfg_path = tmp_path / "val.yaml"
-        cfg_path.write_text(yaml.dump({
-            "validation": {
-                "accept_threshold": 0.9,
-                "reject_threshold": 0.2,
-                "rules": [
-                    {"name": "MaxDistanceRule", "params": {"max_distance_nm": 500}},
-                    {"name": "CurvatureRule", "params": {"max_curvature_rad": 1.5}},
-                ],
-            }
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "validation": {
+                        "accept_threshold": 0.9,
+                        "reject_threshold": 0.2,
+                        "rules": [
+                            {"name": "MaxDistanceRule", "params": {"max_distance_nm": 500}},
+                            {"name": "CurvatureRule", "params": {"max_curvature_rad": 1.5}},
+                        ],
+                    }
+                }
+            )
+        )
         config = load_config(cfg_path)
         assert config.validation.accept_threshold == 0.9
         assert len(config.validation.rules) == 2
@@ -71,17 +78,21 @@ class TestLoadConfig:
 
     def test_load_full_config(self, tmp_path):
         cfg_path = tmp_path / "full.yaml"
-        cfg_path.write_text(yaml.dump({
-            "pipeline": {"name": "test-pipeline", "version": "2.0", "seed": 123},
-            "input": {"format": "hdf5"},
-            "fragments": {"min_voxel_count": 50},
-            "graph": {"max_distance_nm": 1000.0},
-            "candidates": {"max_endpoint_distance_nm": 800.0},
-            "validation": {"accept_threshold": 0.7, "rules": []},
-            "assembly": {"min_structure_fragments": 3},
-            "export": {"formats": ["csv", "json"], "output_dir": "/tmp/out"},
-            "logging": {"level": "DEBUG"},
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "pipeline": {"name": "test-pipeline", "version": "2.0", "seed": 123},
+                    "input": {"format": "hdf5"},
+                    "fragments": {"min_voxel_count": 50},
+                    "graph": {"max_distance_nm": 1000.0},
+                    "candidates": {"max_endpoint_distance_nm": 800.0},
+                    "validation": {"accept_threshold": 0.7, "rules": []},
+                    "assembly": {"min_structure_fragments": 3},
+                    "export": {"formats": ["csv", "json"], "output_dir": "/tmp/out"},
+                    "logging": {"level": "DEBUG"},
+                }
+            )
+        )
         config = load_config(cfg_path)
         assert config.name == "test-pipeline"
         assert config.seed == 123
@@ -91,9 +102,13 @@ class TestLoadConfig:
 
     def test_load_ignores_unknown_keys(self, tmp_path):
         cfg_path = tmp_path / "extra.yaml"
-        cfg_path.write_text(yaml.dump({
-            "input": {"format": "hdf5", "unknown_key": "ignored"},
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "input": {"format": "hdf5", "unknown_key": "ignored"},
+                }
+            )
+        )
         config = load_config(cfg_path)
         assert config.input.format == "hdf5"
 

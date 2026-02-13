@@ -108,15 +108,25 @@ class TestEndToEnd:
         """Test pipeline with GraphML export format."""
         config = PipelineConfig(
             input=InputConfig(
-                format="numpy", resolution=(30.0, 8.0, 8.0),
-                chunk_size=(32, 32, 64), chunk_overlap=(0, 0, 0),
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(32, 32, 64),
+                chunk_overlap=(0, 0, 0),
             ),
-            fragments=FragmentConfig(min_voxel_count=10, extract_skeletons=False, extract_meshes=False),
+            fragments=FragmentConfig(
+                min_voxel_count=10, extract_skeletons=False, extract_meshes=False
+            ),
             graph=GraphConfig(max_distance_nm=500.0),
-            candidates=CandidateConfig(max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0),
-            validation=ValidationConfig(accept_threshold=0.3, reject_threshold=0.1, rules=[
-                RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
-            ]),
+            candidates=CandidateConfig(
+                max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0
+            ),
+            validation=ValidationConfig(
+                accept_threshold=0.3,
+                reject_threshold=0.1,
+                rules=[
+                    RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
+                ],
+            ),
             assembly=AssemblyConfig(min_structure_fragments=2),
             export=ExportConfig(formats=["graphml", "json"], output_dir=str(tmp_path / "out")),
             logging=LoggingConfig(level="WARNING", file="", console=False),
@@ -130,15 +140,25 @@ class TestEndToEnd:
         """Test pipeline with SWC export format."""
         config = PipelineConfig(
             input=InputConfig(
-                format="numpy", resolution=(30.0, 8.0, 8.0),
-                chunk_size=(32, 32, 64), chunk_overlap=(0, 0, 0),
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(32, 32, 64),
+                chunk_overlap=(0, 0, 0),
             ),
-            fragments=FragmentConfig(min_voxel_count=10, extract_skeletons=False, extract_meshes=False),
+            fragments=FragmentConfig(
+                min_voxel_count=10, extract_skeletons=False, extract_meshes=False
+            ),
             graph=GraphConfig(max_distance_nm=500.0),
-            candidates=CandidateConfig(max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0),
-            validation=ValidationConfig(accept_threshold=0.3, reject_threshold=0.1, rules=[
-                RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
-            ]),
+            candidates=CandidateConfig(
+                max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0
+            ),
+            validation=ValidationConfig(
+                accept_threshold=0.3,
+                reject_threshold=0.1,
+                rules=[
+                    RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
+                ],
+            ),
             assembly=AssemblyConfig(min_structure_fragments=2),
             export=ExportConfig(formats=["swc"], output_dir=str(tmp_path / "out")),
             logging=LoggingConfig(level="WARNING", file="", console=False),
@@ -154,15 +174,25 @@ class TestEndToEnd:
         """Test pipeline with Neuroglancer annotation export."""
         config = PipelineConfig(
             input=InputConfig(
-                format="numpy", resolution=(30.0, 8.0, 8.0),
-                chunk_size=(32, 32, 64), chunk_overlap=(0, 0, 0),
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(32, 32, 64),
+                chunk_overlap=(0, 0, 0),
             ),
-            fragments=FragmentConfig(min_voxel_count=10, extract_skeletons=False, extract_meshes=False),
+            fragments=FragmentConfig(
+                min_voxel_count=10, extract_skeletons=False, extract_meshes=False
+            ),
             graph=GraphConfig(max_distance_nm=500.0),
-            candidates=CandidateConfig(max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0),
-            validation=ValidationConfig(accept_threshold=0.3, reject_threshold=0.1, rules=[
-                RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
-            ]),
+            candidates=CandidateConfig(
+                max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0
+            ),
+            validation=ValidationConfig(
+                accept_threshold=0.3,
+                reject_threshold=0.1,
+                rules=[
+                    RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
+                ],
+            ),
             assembly=AssemblyConfig(min_structure_fragments=2),
             export=ExportConfig(formats=["neuroglancer"], output_dir=str(tmp_path / "out")),
             logging=LoggingConfig(level="WARNING", file="", console=False),
@@ -176,14 +206,21 @@ class TestEndToEnd:
         """Test pipeline with multiple validation rules enabled."""
         config = PipelineConfig(
             input=InputConfig(
-                format="numpy", resolution=(30.0, 8.0, 8.0),
-                chunk_size=(32, 32, 64), chunk_overlap=(0, 0, 0),
+                format="numpy",
+                resolution=(30.0, 8.0, 8.0),
+                chunk_size=(32, 32, 64),
+                chunk_overlap=(0, 0, 0),
             ),
-            fragments=FragmentConfig(min_voxel_count=10, extract_skeletons=False, extract_meshes=False),
+            fragments=FragmentConfig(
+                min_voxel_count=10, extract_skeletons=False, extract_meshes=False
+            ),
             graph=GraphConfig(max_distance_nm=500.0),
-            candidates=CandidateConfig(max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0),
+            candidates=CandidateConfig(
+                max_endpoint_distance_nm=500.0, min_alignment_score=0.0, min_composite_score=0.0
+            ),
             validation=ValidationConfig(
-                accept_threshold=0.5, reject_threshold=0.2,
+                accept_threshold=0.5,
+                reject_threshold=0.2,
                 rules=[
                     RuleConfig(name="MaxDistanceRule", params={"max_distance_nm": 500.0}),
                     RuleConfig(name="SizeDiscrepancyRule", params={"max_radius_ratio": 5.0}),
