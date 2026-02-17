@@ -26,7 +26,6 @@ from connectomics_pipeline.visualization.plot_connections import (
     plot_connections_3d,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -212,9 +211,7 @@ class TestPlotConnections3d:
         store = FragmentStore()
 
         with patch("connectomics_pipeline.visualization.plot_connections._HAS_MPL", True):
-            with patch(
-                "connectomics_pipeline.visualization.plot_connections.plt"
-            ) as mock_plt:
+            with patch("connectomics_pipeline.visualization.plot_connections.plt") as mock_plt:
                 mock_fig = MagicMock()
                 mock_plt.figure.return_value = mock_fig
                 mock_fig.add_subplot.return_value = MagicMock()

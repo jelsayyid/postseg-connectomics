@@ -364,9 +364,7 @@ class TestSWCExportMissingCoverage:
         )
         out = tmp_path / "zero_nodes.swc"
         export_swc(structure, store, out)
-        data_lines = [
-            l for l in out.read_text().strip().split("\n") if not l.startswith("#")
-        ]
+        data_lines = [l for l in out.read_text().strip().split("\n") if not l.startswith("#")]
         assert len(data_lines) == 0
 
     def test_node_with_no_matching_edge_gets_fragment_start_parent(self, tmp_path):
@@ -381,9 +379,7 @@ class TestSWCExportMissingCoverage:
             bounding_box=BoundingBox(min_corner=np.zeros(3), max_corner=np.ones(3) * 100),
             centroid=np.array([50.0, 50.0, 50.0]),
             skeleton=Skeleton(
-                nodes=np.array(
-                    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
-                ),
+                nodes=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]),
                 edges=np.array([[0, 1]]),  # node 2 has no incoming edge
                 radii=np.array([1.0, 1.0, 1.0]),
             ),
@@ -397,9 +393,7 @@ class TestSWCExportMissingCoverage:
         )
         out = tmp_path / "fallback_parent.swc"
         export_swc(structure, store, out)
-        data_lines = [
-            l for l in out.read_text().strip().split("\n") if not l.startswith("#")
-        ]
+        data_lines = [l for l in out.read_text().strip().split("\n") if not l.startswith("#")]
         # Three nodes → three data lines
         assert len(data_lines) == 3
         # Node at index 2 (swc id=3): its parent should be frag_start_id=1

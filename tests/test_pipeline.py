@@ -275,7 +275,7 @@ class TestEndToEnd:
         import numpy as np
 
         vol = np.zeros((32, 32, 128), dtype=np.uint32)
-        vol[14:18, 14:18, 5:60] = 1   # spans two chunks
+        vol[14:18, 14:18, 5:60] = 1  # spans two chunks
         vol[14:18, 14:18, 70:120] = 2
 
         config = PipelineConfig(

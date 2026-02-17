@@ -233,8 +233,10 @@ class TestSkeletonizer:
         assert edges.shape == (0, 2)
 
         # Test line 97: patch skeletonize to return all-zero array so coords is empty
-        with patch("connectomics_pipeline.fragments.skeleton.skeletonize",
-                   return_value=np.zeros((5, 5, 5), dtype=np.uint8)):
+        with patch(
+            "connectomics_pipeline.fragments.skeleton.skeletonize",
+            return_value=np.zeros((5, 5, 5), dtype=np.uint8),
+        ):
             sk = Skeletonizer(method="fallback", resolution=(1.0, 1.0, 1.0))
             mask = np.ones((5, 5, 5), dtype=np.uint8)
             skeleton = sk.skeletonize(mask)
