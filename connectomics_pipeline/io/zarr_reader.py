@@ -10,6 +10,18 @@ import zarr
 from connectomics_pipeline.io.volume_reader import BaseVolumeReader
 
 
+def _open_zarr_array(path: str, dataset: str) -> zarr.Array:
+    """Open a Zarr array, navigating into a group dataset if needed."""
+    if dataset:
+        store = zarr.open_group(path, mode="r")
+        arr = store[dataset]
+    else:
+        arr = zarr.open_array(path, mode="r")
+    if not isinstance(arr, zarr.Array):
+        raise TypeError(f"Expected zarr.Array at '{dataset}', got {type(arr).__name__}")
+    return arr
+
+
 class ZarrReader(BaseVolumeReader):
     """Read segmentation volumes from Zarr arrays."""
 
@@ -22,10 +34,9 @@ class ZarrReader(BaseVolumeReader):
         self._path = path
         self._dataset = dataset
         self._resolution = tuple(resolution)
-        store = zarr.open(self._path, mode="r")
-        ds = store[self._dataset] if self._dataset else store
-        self._shape = ds.shape
-        self._dtype = ds.dtype
+        arr = _open_zarr_array(self._path, self._dataset)
+        self._shape: Tuple[int, ...] = arr.shape
+        self._dtype: np.dtype = arr.dtype
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -45,6 +56,5 @@ class ZarrReader(BaseVolumeReader):
         size: Tuple[int, ...],
     ) -> np.ndarray:
         slices = tuple(slice(o, o + s) for o, s in zip(offset, size))
-        store = zarr.open(self._path, mode="r")
-        ds = store[self._dataset] if self._dataset else store
-        return np.array(ds[slices])
+        arr = _open_zarr_array(self._path, self._dataset)
+        return np.array(arr[slices])
