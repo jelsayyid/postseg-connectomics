@@ -321,3 +321,87 @@ class TestStatusColor:
 
     def test_unknown_status(self):
         assert _status_color("unknown") == "#ffffff"
+
+
+class TestGraphMLExportEdgeNumpy:
+    def test_edge_with_numpy_array_attribute(self, sample_fragments, tmp_path):
+        """Line 42: numpy arrays in edge attributes are serialised for GraphML."""
+        graph = FragmentGraph()
+        for f in sample_fragments:
+            graph.add_fragment(f)
+        ep_a = np.array([1.0, 2.0, 3.0])
+        ep_b = np.array([4.0, 5.0, 6.0])
+        graph.add_edge(0, 1, distance=50.0, endpoint_pair=(ep_a, ep_b))
+        out = tmp_path / "edge_np.graphml"
+        export_graphml(graph, out)
+        assert out.exists()
+        content = out.read_text()
+        assert "<edge" in content
+
+
+class TestSWCExportMissingCoverage:
+    def test_skeleton_with_zero_nodes_skipped(self, tmp_path):
+        """Line 58: skeleton with 0 nodes is skipped (no SWC rows written)."""
+        store = FragmentStore()
+        frag = Fragment(
+            fragment_id=0,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(min_corner=np.zeros(3), max_corner=np.ones(3) * 100),
+            centroid=np.array([50.0, 50.0, 50.0]),
+            skeleton=Skeleton(
+                nodes=np.zeros((0, 3)),
+                edges=np.zeros((0, 2), dtype=int),
+                radii=np.zeros(0),
+            ),
+        )
+        store.add(frag)
+        structure = AssembledStructure(
+            structure_id=0,
+            fragment_ids=[0],
+            confidence=0.5,
+            total_path_length=0.0,
+        )
+        out = tmp_path / "zero_nodes.swc"
+        export_swc(structure, store, out)
+        data_lines = [
+            l for l in out.read_text().strip().split("\n") if not l.startswith("#")
+        ]
+        assert len(data_lines) == 0
+
+    def test_node_with_no_matching_edge_gets_fragment_start_parent(self, tmp_path):
+        """Line 80: node i>0 with no edge match inherits frag_start_id as parent."""
+        store = FragmentStore()
+        # Skeleton with 3 nodes but edges only point from node 0 -> node 1,
+        # leaving node 2 (index 2) without an edge[1]==2 entry → triggers line 80.
+        frag = Fragment(
+            fragment_id=0,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(min_corner=np.zeros(3), max_corner=np.ones(3) * 100),
+            centroid=np.array([50.0, 50.0, 50.0]),
+            skeleton=Skeleton(
+                nodes=np.array(
+                    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+                ),
+                edges=np.array([[0, 1]]),  # node 2 has no incoming edge
+                radii=np.array([1.0, 1.0, 1.0]),
+            ),
+        )
+        store.add(frag)
+        structure = AssembledStructure(
+            structure_id=0,
+            fragment_ids=[0],
+            confidence=0.8,
+            total_path_length=2.0,
+        )
+        out = tmp_path / "fallback_parent.swc"
+        export_swc(structure, store, out)
+        data_lines = [
+            l for l in out.read_text().strip().split("\n") if not l.startswith("#")
+        ]
+        # Three nodes → three data lines
+        assert len(data_lines) == 3
+        # Node at index 2 (swc id=3): its parent should be frag_start_id=1
+        parts = data_lines[2].split()
+        assert parts[6] == "1"  # parent is the first node of the fragment

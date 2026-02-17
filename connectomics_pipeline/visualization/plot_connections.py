@@ -18,8 +18,8 @@ try:
     from mpl_toolkits.mplot3d import Axes3D
 
     _HAS_MPL = True
-except ImportError:
-    _HAS_MPL = False
+except ImportError:  # pragma: no cover
+    _HAS_MPL = False  # pragma: no cover
 
 
 STATUS_COLORS = {

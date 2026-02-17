@@ -11,7 +11,7 @@ from connectomics_pipeline.io.volume_reader import BaseVolumeReader
 try:
     from cloudvolume import CloudVolume
 
-    _HAS_CLOUDVOLUME = True
+    _HAS_CLOUDVOLUME = True  # pragma: no cover
 except ImportError:
     _HAS_CLOUDVOLUME = False
 

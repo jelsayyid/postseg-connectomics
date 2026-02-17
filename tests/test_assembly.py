@@ -115,3 +115,58 @@ class TestAssembler:
         # At least one structure should contain fragments 0 and 1
         found = any(0 in s.fragment_ids and 1 in s.fragment_ids for s in structures)
         assert found
+
+    def test_assemble_skips_unknown_candidate_id(self, fragment_store, sample_fragments):
+        """Line 57: candidate_id in report.accepted but absent from cand_map is skipped."""
+        config = AssemblyConfig(min_structure_fragments=1)
+        graph_config = GraphConfig(max_distance_nm=500.0)
+        graph = GraphBuilder(graph_config).build(fragment_store)
+
+        # report.accepted references cid=999 which does not exist in candidates list
+        report = ValidationReport(accepted=[999], rejected=[], ambiguous=[])
+        assembler = Assembler(config)
+        structures = assembler.assemble(graph, [], report, fragment_store)
+        # No valid edges → no structures
+        assert structures == []
+
+    def test_assemble_skips_small_components(self, fragment_store, sample_fragments):
+        """Line 66: components below min_structure_fragments are skipped."""
+        config = AssemblyConfig(min_structure_fragments=10)  # impossibly high
+        graph_config = GraphConfig(max_distance_nm=500.0)
+        graph = GraphBuilder(graph_config).build(fragment_store)
+
+        candidate = CandidateConnection(
+            candidate_id=0,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=sample_fragments[0].endpoints[1],
+            endpoint_b=sample_fragments[1].endpoints[0],
+            composite_score=0.85,
+            status=ConnectionStatus.ACCEPTED,
+        )
+        report = ValidationReport(accepted=[0], rejected=[], ambiguous=[])
+        assembler = Assembler(config)
+        structures = assembler.assemble(graph, [candidate], report, fragment_store)
+        assert structures == []
+
+
+class TestTopologyMissingCoverage:
+    def test_isolated_nodes_warning(self):
+        """Line 35: isolated nodes trigger a warning."""
+        g = nx.Graph()
+        g.add_node(0)  # isolated
+        g.add_node(1)  # isolated
+        warnings, _ = check_topology(g)
+        assert any("isolated" in w.lower() for w in warnings)
+
+    def test_count_branch_order_empty_graph(self):
+        """Line 51: count_branch_order returns 0 for an empty graph."""
+        g = nx.Graph()
+        assert count_branch_order(g) == 0
+
+
+class TestConfidenceMissingCoverage:
+    def test_all_cids_missing_from_map_returns_zero(self):
+        """Line 36: if scores list is empty (all cids absent from map), return 0.0."""
+        # cids [0, 1] don't exist in the empty map
+        assert compute_structure_confidence([0, 1], {}) == 0.0

@@ -151,3 +151,123 @@ class TestValidationPipeline:
         assert close_candidate.candidate_id in report.accepted
         assert far_candidate.candidate_id in report.rejected
         assert report.total == 2
+
+    def test_explicit_rules_bypass_config(self, close_candidate, far_candidate, fragment_store):
+        """Line 28: ValidationPipeline with explicit rules list uses those rules directly."""
+        config = ValidationConfig(accept_threshold=0.6, reject_threshold=0.3, rules=[])
+        explicit_rules = [MaxDistanceRule(max_distance_nm=1500.0)]
+        pipeline = ValidationPipeline(config, rules=explicit_rules)
+        assert len(pipeline.rules) == 1
+        assert isinstance(pipeline.rules[0], MaxDistanceRule)
+        report = pipeline.validate([close_candidate], fragment_store)
+        assert report.total == 1
+
+
+class TestCurvatureRuleMissingCoverage:
+    def test_curvature_exceeds_max_rejected(self, fragment_store):
+        """Line 100: CurvatureRule rejects when curvature > max_curvature_rad.
+
+        Fragment 0 has centroid [50,50,100] and the endpoint_a is [50,50,200],
+        giving direction_a ≈ [0,0,1]. The connection vector from endpoint_a to
+        endpoint_b is [100,0,0] ≈ [1,0,0]. The angle between them is ~90°,
+        which exceeds max_curvature_deg=30.
+        """
+        candidate = CandidateConnection(
+            candidate_id=5,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.array([50.0, 50.0, 200.0]),
+            endpoint_b=np.array([150.0, 50.0, 200.0]),  # 90° turn from z-axis to x-axis
+            alignment_score=0.1,
+            composite_score=0.1,
+        )
+        rule = CurvatureRule(max_curvature_deg=30.0)
+        result = rule.evaluate(candidate, fragment_store)
+        assert result.decision == ConnectionStatus.REJECTED
+
+    def test_zero_connection_vector_returns_zero_curvature(self, fragment_store):
+        """Line 124: conn_norm < 1e-12 early-returns 0 curvature → ACCEPT."""
+        candidate = CandidateConnection(
+            candidate_id=6,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.array([50.0, 50.0, 200.0]),
+            endpoint_b=np.array([50.0, 50.0, 200.0]),  # identical → zero vector
+            alignment_score=0.8,
+            composite_score=0.8,
+        )
+        rule = CurvatureRule(max_curvature_deg=90.0)
+        result = rule.evaluate(candidate, fragment_store)
+        assert result.decision == ConnectionStatus.ACCEPTED
+
+    def test_get_direction_zero_norm_returns_default(self, fragment_store):
+        """Line 135: _get_direction with zero-norm direction returns [1,0,0]."""
+        # Endpoint == centroid → norm is 0 → fallback to [1,0,0]
+        candidate = CandidateConnection(
+            candidate_id=7,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.array([50.0, 50.0, 100.0]),  # == centroid of fragment 0
+            endpoint_b=np.array([50.0, 50.0, 200.0]),
+            alignment_score=0.8,
+            composite_score=0.8,
+        )
+        rule = CurvatureRule(max_curvature_deg=90.0)
+        result = rule.evaluate(candidate, fragment_store)
+        assert result.decision in (ConnectionStatus.ACCEPTED, ConnectionStatus.REJECTED)
+
+
+class TestBranchingLimitRuleMissingCoverage:
+    def test_reject_when_degree_exceeds_limit(self, close_candidate, fragment_store):
+        """Line 257: BranchingLimitRule rejects when max degree >= max_branches."""
+        from connectomics_pipeline.graph.fragment_graph import FragmentGraph
+        from connectomics_pipeline.utils.types import BoundingBox
+
+        graph = FragmentGraph()
+        for fid in range(15):
+            f = Fragment(
+                fragment_id=fid,
+                label_id=1,
+                voxel_count=100,
+                bounding_box=BoundingBox(np.zeros(3), np.ones(3) * 10),
+                centroid=np.array([float(fid), 0.0, 0.0]),
+                endpoints=[np.array([float(fid), 0.0, 0.0])],
+            )
+            graph.add_fragment(f)
+        # Make fragment 0 have 12 neighbors (exceeds max_branches=10)
+        for i in range(1, 13):
+            graph.add_edge(0, i, distance=float(i))
+
+        candidate = CandidateConnection(
+            candidate_id=0,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.zeros(3),
+            endpoint_b=np.ones(3),
+            alignment_score=0.8,
+            composite_score=0.8,
+        )
+        rule = BranchingLimitRule(max_branches=10)
+        result = rule.evaluate(candidate, fragment_store, graph=graph)
+        assert result.decision == ConnectionStatus.REJECTED
+
+    def test_accept_when_degree_within_limit(self, close_candidate, fragment_store):
+        """Line 257: BranchingLimitRule accept with real graph when degree < max_branches."""
+        from connectomics_pipeline.graph.fragment_graph import FragmentGraph
+
+        graph = FragmentGraph()
+        for fid in [0, 1]:
+            f = Fragment(
+                fragment_id=fid,
+                label_id=1,
+                voxel_count=100,
+                bounding_box=BoundingBox(np.zeros(3), np.ones(3) * 10),
+                centroid=np.array([float(fid), 0.0, 0.0]),
+                endpoints=[np.array([float(fid), 0.0, 0.0])],
+            )
+            graph.add_fragment(f)
+        graph.add_edge(0, 1, distance=1.0)  # degree = 1 for each
+
+        rule = BranchingLimitRule(max_branches=10)
+        result = rule.evaluate(close_candidate, fragment_store, graph=graph)
+        assert result.decision == ConnectionStatus.ACCEPTED

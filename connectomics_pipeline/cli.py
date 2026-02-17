@@ -50,5 +50,5 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Results saved to: {config.export.output_dir}")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":  # pragma: no cover
+    main()  # pragma: no cover

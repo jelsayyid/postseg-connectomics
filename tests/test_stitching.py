@@ -209,3 +209,27 @@ class TestChunkStitcher:
         result = stitcher.stitch(frags, [])
         assert len(result) == 1
         assert result[0].fragment_id == 0
+
+
+class TestUnionFindRankSwap:
+    def test_rank_swap_line_35(self):
+        """Line 35: union swaps rx/ry when rank[rx] < rank[ry].
+
+        Build two trees with rank=1 each, merge them (rank now 2 for root),
+        then union a fresh node (rank=0) with that root to force the swap.
+        """
+        uf = UnionFind()
+        # Build rank-1 tree rooted at 0: union(0,1) → rank[0]=1
+        uf.union(0, 1)
+        # Build rank-1 tree rooted at 2: union(2,3) → rank[2]=1
+        uf.union(2, 3)
+        # Merge them: union(0,2) → rank[0]=2, rank[2]=1 → equal rank path (no swap)
+        uf.union(0, 2)
+        # Now root of all is 0 with rank=2.
+        # Union fresh node 4 with the high-rank root:
+        # find(4)=4 (rank 0), find(0)=0 (rank 2) → rank[rx=4] < rank[ry=0] → swap!
+        uf.union(4, 0)
+        # All five nodes should share the same root
+        root = uf.find(0)
+        for node in [0, 1, 2, 3, 4]:
+            assert uf.find(node) == root

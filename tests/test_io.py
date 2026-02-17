@@ -77,3 +77,18 @@ class TestHDF5Reader:
         np.testing.assert_array_equal(chunk, synthetic_volume[:10, :10, :10])
 
         Path(path).unlink()
+
+    def test_resolution_property(self, resolution):
+        """HDF5Reader.resolution returns the configured resolution tuple."""
+        from connectomics_pipeline.io.hdf5_reader import HDF5Reader
+
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
+            path = f.name
+
+        data = np.zeros((4, 4, 4), dtype=np.uint32)
+        with h5py.File(path, "w") as f:
+            f.create_dataset("labels", data=data)
+
+        reader = HDF5Reader(path, dataset="labels", resolution=resolution)
+        assert reader.resolution == resolution
+        Path(path).unlink()

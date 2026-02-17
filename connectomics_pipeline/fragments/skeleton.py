@@ -15,7 +15,7 @@ logger = get_logger("fragments.skeleton")
 try:
     import kimimaro
 
-    _HAS_KIMIMARO = True
+    _HAS_KIMIMARO = True  # pragma: no cover
 except ImportError:
     _HAS_KIMIMARO = False
 

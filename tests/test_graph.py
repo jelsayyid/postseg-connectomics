@@ -89,3 +89,85 @@ class TestEndpointIndex:
         results = index.query_nearest(np.array([50.0, 50.0, 225.0]), k=1)
         assert len(results) == 1
         # Should find the endpoint at [50, 50, 200] or [50, 50, 250]
+
+
+class TestFragmentGraphMissingCoverage:
+    def test_get_neighbors_missing_node_returns_empty(self):
+        """get_neighbors for a node not in the graph returns []."""
+        graph = FragmentGraph()
+        assert graph.get_neighbors(999) == []
+
+    def test_nodes_method(self, sample_fragments):
+        """nodes() returns the set of all fragment IDs."""
+        graph = FragmentGraph()
+        for f in sample_fragments:
+            graph.add_fragment(f)
+        assert graph.nodes() == {0, 1, 2}
+
+    def test_node_data_method(self, sample_fragments):
+        """node_data() returns attribute dict for a given fragment ID."""
+        graph = FragmentGraph()
+        graph.add_fragment(sample_fragments[0])
+        data = graph.node_data(0)
+        assert "centroid" in data
+        assert "voxel_count" in data
+
+
+class TestGraphBuilderContactMethod:
+    def test_contact_build(self):
+        """Contact-based graph construction adds edges for fragments with overlapping bboxes."""
+        from connectomics_pipeline.utils.types import BoundingBox, Fragment, Skeleton
+
+        # Create two fragments whose bboxes genuinely overlap so query_bbox finds them
+        f0 = Fragment(
+            fragment_id=0,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(
+                min_corner=np.array([0.0, 0.0, 0.0]),
+                max_corner=np.array([100.0, 100.0, 150.0]),
+            ),
+            centroid=np.array([50.0, 50.0, 75.0]),
+            endpoints=[np.array([50.0, 50.0, 0.0]), np.array([50.0, 50.0, 150.0])],
+        )
+        f1 = Fragment(
+            fragment_id=1,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(
+                min_corner=np.array([0.0, 0.0, 50.0]),
+                max_corner=np.array([100.0, 100.0, 250.0]),
+            ),
+            centroid=np.array([50.0, 50.0, 150.0]),
+            endpoints=[np.array([50.0, 50.0, 50.0]), np.array([50.0, 50.0, 250.0])],
+        )
+        from connectomics_pipeline.fragments.store import FragmentStore
+
+        store = FragmentStore()
+        store.add_many([f0, f1])
+
+        config = GraphConfig(construction_method="contact", max_distance_nm=5000.0)
+        builder = GraphBuilder(config)
+        graph = builder.build(store)
+        assert graph.num_nodes == 2
+        assert graph.has_edge(0, 1)
+
+    def test_unknown_method_raises(self, fragment_store):
+        config = GraphConfig(construction_method="unknown_method", max_distance_nm=1000.0)
+        builder = GraphBuilder(config)
+        import pytest
+
+        with pytest.raises(ValueError, match="Unknown graph construction method"):
+            builder.build(fragment_store)
+
+
+class TestEndpointIndexMissingCoverage:
+    def test_empty_index_query_radius_returns_empty(self):
+        """query_radius on an empty index returns []."""
+        index = EndpointIndex([])
+        assert index.query_radius(np.zeros(3), radius=100.0) == []
+
+    def test_empty_index_query_nearest_returns_empty(self):
+        """query_nearest on an empty index returns []."""
+        index = EndpointIndex([])
+        assert index.query_nearest(np.zeros(3), k=1) == []

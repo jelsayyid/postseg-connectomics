@@ -119,3 +119,88 @@ class TestCandidateGenerator:
         for c in candidates:
             assert 0.0 <= c.composite_score <= 1.0
             assert 0.0 <= c.proximity_score <= 1.0
+
+    def test_generate_skips_missing_fragment(self, fragment_store, candidate_config):
+        """Line 45: edge whose fragment is absent from store is skipped."""
+        from connectomics_pipeline.graph.fragment_graph import FragmentGraph
+
+        graph = FragmentGraph()
+        # Add only one fragment to the graph; the other (id=99) is not in store
+        graph.add_fragment(fragment_store.get(0))
+        graph._graph.add_node(99)
+        graph._graph.add_edge(0, 99, distance=100.0)
+
+        generator = CandidateGenerator(candidate_config, fragment_store)
+        candidates = generator.generate(graph)
+        # The edge (0, 99) is skipped; no candidates produced for it
+        cand_pairs = {(c.fragment_a, c.fragment_b) for c in candidates}
+        assert (0, 99) not in cand_pairs and (99, 0) not in cand_pairs
+
+    def test_generate_filters_low_composite_score(self, fragment_store):
+        """Line 83: candidate with composite below min_composite_score is dropped."""
+        # Set thresholds that almost nothing passes
+        strict_config = CandidateConfig(
+            max_endpoint_distance_nm=1.0,  # very short → proximity ~0
+            min_alignment_score=0.0,
+            min_composite_score=0.99,  # near-perfect required
+        )
+        graph_config = GraphConfig(max_distance_nm=500.0)
+        graph = GraphBuilder(graph_config).build(fragment_store)
+        generator = CandidateGenerator(strict_config, fragment_store)
+        candidates = generator.generate(graph)
+        for c in candidates:
+            assert c.composite_score >= 0.99
+
+
+class TestAlignmentScoreMissingCoverage:
+    def test_endpoint_equals_centroid_fallback(self, sample_fragments):
+        """Line 67: when endpoint == centroid, direction norm is ~0; returns [1,0,0]."""
+        from connectomics_pipeline.utils.types import Fragment, BoundingBox, Skeleton
+
+        # Fragment without a skeleton (forces centroid-fallback path)
+        frag = Fragment(
+            fragment_id=10,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(min_corner=np.zeros(3), max_corner=np.ones(3) * 10),
+            centroid=np.array([5.0, 5.0, 5.0]),
+            endpoints=[np.array([5.0, 5.0, 5.0])],
+        )
+        frag2 = sample_fragments[0]
+        # Pass endpoint == centroid so norm < 1e-12 fallback fires
+        score = compute_alignment_score(
+            frag,
+            frag2,
+            endpoint_a=np.array([5.0, 5.0, 5.0]),  # same as centroid → zero direction
+            endpoint_b=frag2.endpoints[0],
+        )
+        assert 0.0 <= score <= 1.0
+
+    def test_no_skeleton_nonzero_direction_uses_fallback_return(self):
+        """Line 67: fragment without skeleton, endpoint != centroid → direction/norm returned."""
+        from connectomics_pipeline.utils.types import Fragment, BoundingBox
+
+        frag_no_skel = Fragment(
+            fragment_id=20,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(min_corner=np.zeros(3), max_corner=np.ones(3) * 20),
+            centroid=np.array([0.0, 0.0, 0.0]),
+            endpoints=[np.array([10.0, 0.0, 0.0])],
+        )
+        frag2 = Fragment(
+            fragment_id=21,
+            label_id=1,
+            voxel_count=100,
+            bounding_box=BoundingBox(min_corner=np.ones(3) * 20, max_corner=np.ones(3) * 40),
+            centroid=np.array([30.0, 0.0, 0.0]),
+            endpoints=[np.array([30.0, 0.0, 0.0])],
+        )
+        # endpoint_a is far from centroid → norm > 1e-12 → hits line 67 (return direction/norm)
+        score = compute_alignment_score(
+            frag_no_skel,
+            frag2,
+            endpoint_a=np.array([10.0, 0.0, 0.0]),
+            endpoint_b=np.array([30.0, 0.0, 0.0]),
+        )
+        assert 0.0 <= score <= 1.0

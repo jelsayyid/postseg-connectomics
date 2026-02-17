@@ -184,3 +184,23 @@ class TestDataclassDefaults:
     def test_validation_thresholds(self):
         config = ValidationConfig()
         assert config.accept_threshold > config.reject_threshold
+
+
+class TestSaveConfigEnumHandling:
+    def test_save_config_with_enum_value(self, tmp_path):
+        """Line 203: _to_dict serialises Enum values via .value."""
+        from enum import Enum
+
+        class DummyEnum(Enum):
+            A = "a_value"
+
+        config = PipelineConfig()
+        # Inject an Enum into a dict-typed field so _to_dict hits the Enum branch
+        config.fragments.skeleton_params = {"method": DummyEnum.A}
+        out = tmp_path / "enum_cfg.yaml"
+        save_config(config, out)
+
+        import yaml
+
+        data = yaml.safe_load(out.read_text())
+        assert data["fragments"]["skeleton_params"]["method"] == "a_value"
