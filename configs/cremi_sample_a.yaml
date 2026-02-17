@@ -1,0 +1,76 @@
+# CREMI Sample A — Cropped subvolume (64×256×256)
+# Real Drosophila brain segmentation from CREMI challenge.
+# Resolution: 40nm z-sections, 4nm xy pixels.
+
+pipeline:
+  name: "cremi-sample-a"
+  version: "0.1.0"
+  seed: 42
+
+input:
+  format: "hdf5"
+  path: "data/cremi_crop.hdf"
+  dataset: "labels"
+  resolution: [40, 4, 4]           # CREMI Sample A: 40nm z, 4nm xy
+  chunk_size: [64, 256, 256]        # Single chunk covers the whole crop
+  chunk_overlap: [8, 16, 16]
+
+fragments:
+  min_voxel_count: 50               # Lower threshold — real fragments can be small at crop edges
+  extract_skeletons: true
+  extract_meshes: false
+  skeleton_method: "teasar"
+  skeleton_params:
+    invalidation_d0: 10
+    dust_threshold: 50
+
+graph:
+  construction_method: "proximity"
+  max_distance_nm: 500              # Tight — real neurons are densely packed at 4nm xy
+
+candidates:
+  max_endpoint_distance_nm: 400     # Conservative for dense tissue
+  min_alignment_score: 0.3
+  min_composite_score: 0.2
+  weights:
+    proximity: 0.35
+    alignment: 0.30
+    continuity: 0.25
+    size: 0.10
+
+validation:
+  accept_threshold: 0.8
+  reject_threshold: 0.3
+  rules:
+    - name: "MaxDistanceRule"
+      params:
+        max_distance_nm: 400
+    - name: "CurvatureRule"
+      params:
+        max_curvature_deg: 90
+    - name: "DirectionReversalRule"
+      params:
+        min_alignment: 0.0
+    - name: "SizeDiscrepancyRule"
+      params:
+        max_radius_ratio: 3.0
+    - name: "BranchingLimitRule"
+      params:
+        max_branches: 100           # High — dense tissue has many neighbors
+
+assembly:
+  min_structure_fragments: 2
+  flag_ambiguous: true
+  detect_cycles: true
+  max_branch_order: 10
+
+export:
+  formats: ["graphml", "csv"]
+  output_dir: "./output/cremi_sample_a"
+  include_rejected: false
+  include_ambiguous: true
+
+logging:
+  level: "INFO"
+  file: "pipeline.log"
+  console: true

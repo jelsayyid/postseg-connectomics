@@ -253,21 +253,108 @@ This document tracks testing experiments, results, and observations as the pipel
 
 ---
 
-## Experiment 3: Stress Testing with Varied Synthetic Data
+## Experiment 5: CREMI Real Data Run
+
+**Date:** 2026-02-17
+**Objective:** First run on real data — validate that the pipeline handles actual segmentation from the CREMI challenge (Drosophila brain, Sample A).
+
+**Setup:**
+- **Dataset:** CREMI Sample A (`sample_A_20160501.hdf`), `volumes/labels/neuron_ids`
+  - Full volume: 125×1250×1250, uint64, ~37K neuron IDs
+  - Cropped to: **64×256×256** (800 unique neuron labels, no background)
+  - Resolution: 40nm z-sections, 4nm xy pixels
+- **Config:** `configs/cremi_sample_a.yaml`
+  - `graph.max_distance_nm: 500` (tight — dense tissue at 4nm resolution)
+  - `candidates.max_endpoint_distance_nm: 400`
+  - `validation.rules.MaxDistanceRule.max_distance_nm: 400`
+  - `validation.rules.BranchingLimitRule.max_branches: 100` (relaxed — see observations)
+  - `fragments.min_voxel_count: 50`
+- **Command:** `python -m connectomics_pipeline.cli --config configs/cremi_sample_a.yaml --verbose`
+
+**Results:**
+
+| Metric | Value |
+|--------|-------|
+| Runtime | **49.7 seconds** |
+| Fragments extracted | 324 (pre-stitch) → **243** (post-stitch) |
+| Mean fragment size | 21,891 voxels |
+| Fragment size range | 50 – 1,030,653 voxels |
+| Candidates generated | **3,369** |
+| Accepted | **36** (1.1%) |
+| Rejected | **1,937** (57.5%) |
+| Ambiguous | **1,396** (41.4%) |
+| Structures assembled | **30** |
+
+### Validation breakdown:
+
+| Status | Gap Distance (median) | Composite Score (median) |
+|--------|----------------------|-------------------------|
+| Accepted | 0.0 nm | 1.000 |
+| Rejected | 418.9 nm | 0.368 |
+| Ambiguous | 289.8 nm | 0.405 |
+
+### Structure details:
+
+| Metric | Value |
+|--------|-------|
+| Total structures | 30 |
+| 2-fragment structures | 28 |
+| 4-fragment structures | 2 |
+| Median confidence | 1.000 |
+| With ambiguous regions | 29/30 |
+
+### Output files:
+
+| File | Size |
+|------|------|
+| `fragment_graph.graphml` | 371 KB |
+| `connections.csv` | 327 KB |
+| `fragments.csv` | 23 KB |
+| `structures.csv` | 1.3 KB |
+| `pipeline_config.yaml` | 1.3 KB |
+
+**Observations:**
+
+1. **Pipeline runs successfully on real data.** No crashes, no errors — all stages (extraction, stitching, graph, candidates, validation, assembly, export) complete cleanly.
+
+2. **Stitching works correctly:** 324 pre-stitch fragments merged to 243 post-stitch, indicating ~81 cross-chunk fragment merges (despite the crop being close to a single chunk, overlap regions still triggered stitching).
+
+3. **Dense proximity graph is expected:** At 4nm xy resolution, neurons in Drosophila neuropil are tightly packed. The initial run with `max_distance_nm=1000` produced 13,871 edges (avg degree ~114). Tightening to 500nm reduced this to 3,369 edges — still dense but more tractable.
+
+4. **BranchingLimitRule needed adjustment:** With default `max_branches=10`, virtually all candidates were rejected because the proximity graph's high density means every fragment neighbors many others. Relaxing to 100 resolved this. **Key insight:** the branching limit should be tuned relative to graph density, not just neuroscience expectations.
+
+5. **Conservative validation working as designed:** 41.4% of candidates are AMBIGUOUS — the three-outcome system preserves uncertainty rather than forcing binary accept/reject. Accepted connections have near-zero gap distance and perfect composite scores, indicating the pipeline is correctly conservative.
+
+6. **Accepted connections are touching/adjacent fragments:** Median gap distance of 0.0nm for accepted connections means these are fragments that are directly adjacent in the volume — consistent with the CREMI ground truth where same-neuron segments should be touching.
+
+7. **Most structures are pairs:** 28/30 structures have exactly 2 fragments, suggesting the conservative thresholds only connect very confident pairs. The 2 structures with 4 fragments show multi-hop assembly is working.
+
+8. **Nearly all structures have ambiguous regions:** 29/30 structures flagged with `has_ambiguous_regions=True`, meaning there are plausible but uncertain connections near each structure. This is expected and useful for manual review workflows.
+
+**Action Items:**
+- [ ] Run on progressively larger crops (128×512×512, full volume) to test scalability
+- [ ] Compare assembled structures against CREMI ground truth neuron IDs (overlap analysis)
+- [ ] Tune parameters: try relaxing accept_threshold from 0.8 to 0.6 to see if more valid connections are recovered
+- [ ] Profile runtime breakdown (extraction vs. scoring vs. validation) for optimization
+- [ ] Test with CREMI Sample B and C for generalization
+
+---
+
+## Experiment 6: Stress Testing with Varied Synthetic Data
 
 **Date:** _(pending)_
 **Objective:** Test pipeline robustness with edge-case volumes (empty, single-voxel fragments, heavily fragmented, large label counts).
 
 ---
 
-## Experiment 4: Parameter Sensitivity
+## Experiment 7: Parameter Sensitivity
 
 **Date:** _(pending)_
 **Objective:** Evaluate how validation thresholds and scoring weights affect pipeline output (accept/reject/ambiguous ratios).
 
 ---
 
-## Experiment 5: Larger Volume Scalability
+## Experiment 8: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.

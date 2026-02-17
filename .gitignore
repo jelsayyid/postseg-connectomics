@@ -8,3 +8,4 @@ build/
 test_data/
 output/
 *.log
+data/
