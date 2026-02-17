@@ -26,7 +26,7 @@ skeleton = ["kimimaro>=4.0"]
 visualization = ["matplotlib>=3.7", "navis>=1.4"]
 neuroglancer = ["cloud-volume>=8.0"]
 export = ["pyarrow>=12.0"]
-dev = ["pytest>=7.0", "black>=23.0", "mypy>=1.0"]
+dev = ["pytest>=7.0", "black>=23.0", "mypy>=1.0", "matplotlib>=3.7"]
 all = [
     "connectomics-pipeline[skeleton,visualization,neuroglancer,export,dev]",
 ]

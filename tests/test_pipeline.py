@@ -366,8 +366,14 @@ class TestCreateReader:
         import zarr
 
         path = str(tmp_path / "vol.zarr")
+        data = np.zeros((4, 4, 4), dtype=np.uint32)
         z = zarr.open_group(path, mode="w")
-        z.create_dataset("labels", data=np.zeros((4, 4, 4), dtype=np.uint32))
+        # zarr 3.x: create_dataset requires shape=; use create_array which accepts data=
+        # zarr 2.x: create_dataset accepts data= with shape inferred
+        if int(zarr.__version__.split(".")[0]) >= 3:
+            z.create_array("labels", data=data)
+        else:
+            z.create_dataset("labels", data=data)
         config = self._base_config("zarr", path, tmp_path)
         pipeline = Pipeline(config)
         reader = pipeline._create_reader()

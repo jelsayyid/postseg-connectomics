@@ -8,6 +8,21 @@ import zarr
 
 from connectomics_pipeline.io.zarr_reader import ZarrReader, _open_zarr_array
 
+_ZARR_MAJOR = int(zarr.__version__.split(".")[0])
+
+
+def _zarr_create_array(group: zarr.Group, name: str, data: np.ndarray) -> None:
+    """Create a zarr array inside a group, compatible with zarr 2.x and 3.x.
+
+    zarr 2.x: ``Group.create_dataset(name, data=data)`` infers shape from data.
+    zarr 3.x: ``Group.create_dataset`` requires ``shape=`` as keyword-only; use
+              ``Group.create_array(name, data=data)`` instead (shape optional).
+    """
+    if _ZARR_MAJOR >= 3:
+        group.create_array(name, data=data)
+    else:
+        group.create_dataset(name, data=data)
+
 
 @pytest.fixture
 def zarr_group_path(tmp_path):
@@ -15,7 +30,7 @@ def zarr_group_path(tmp_path):
     data = np.arange(27, dtype=np.uint32).reshape(3, 3, 3)
     store_path = str(tmp_path / "test.zarr")
     z = zarr.open_group(store_path, mode="w")
-    z.create_dataset("labels", data=data)
+    _zarr_create_array(z, "labels", data)
     return store_path, data
 
 
