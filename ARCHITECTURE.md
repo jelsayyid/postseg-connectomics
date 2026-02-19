@@ -74,10 +74,14 @@ class VolumeReader(Protocol):
         """Voxel resolution in physical units (nm), (Z, Y, X)."""
         ...
     
-    def read_chunk(self, slices: Tuple[slice, slice, slice]) -> np.ndarray:
-        """Read a subvolume defined by slices."""
+    def read_chunk(self, offset: Tuple[int, ...], size: Tuple[int, ...]) -> np.ndarray:
+        """Read a subvolume starting at offset with given size."""
         ...
-    
+
+    def read_all(self) -> np.ndarray:
+        """Read the entire volume as a single array."""
+        ...
+
     def chunk_iterator(self, chunk_size: Tuple[int, int, int],
                        overlap: Tuple[int, int, int] = (0, 0, 0)) -> Iterator:
         """Iterate over the volume in chunks with optional overlap."""
@@ -405,13 +409,14 @@ class Assembler:
 
 **Export formats:**
 
-| Format | Use case |
-|--------|----------|
-| NetworkX GraphML / JSON | Graph analysis |
-| SWC | Neuron morphology (standard format) |
-| Neuroglancer precomputed | Web-based visualization |
-| CSV / Parquet | Tabular metadata and statistics |
-| HDF5 | Compact binary storage |
+| Format | Config key | Use case |
+|--------|------------|----------|
+| NetworkX GraphML | `"graphml"` | Graph analysis |
+| JSON | `"json"` | Graph in JSON-serializable form |
+| SWC | `"swc"` | Neuron morphology (standard format) |
+| CSV | `"csv"` | Fragment metadata, connection decisions, structure summaries |
+| Neuroglancer annotation layer | `"neuroglancer"` | Line annotations (green/red/yellow per decision) |
+| Corrected precomputed segmentation | `"precomputed_seg"` | Corrected segmentation volume in Neuroglancer precomputed format with accepted merges applied |
 
 **Exported data:**
 
@@ -419,22 +424,23 @@ class Assembler:
 class Exporter:
     def export_graph(self, structures: List[AssembledStructure],
                      format: str, path: str) -> None: ...
-    
+
     def export_metadata(self, structures: List[AssembledStructure],
                         path: str) -> None: ...
-    
+
     def export_validation_report(self, report: ValidationReport,
                                  path: str) -> None: ...
-    
+
     def export_swc(self, structure: AssembledStructure,
                    store: FragmentStore, path: str) -> None: ...
 ```
 
 **Files:**
-- `export/graph_export.py` — Graph format exports
+- `export/graph_export.py` — GraphML and JSON graph exports
 - `export/swc_export.py` — SWC neuron format
-- `export/metadata_export.py` — CSV/Parquet tables
-- `export/neuroglancer_export.py` — Precomputed visualization volumes
+- `export/metadata_export.py` — CSV tables (fragments, connections, structures)
+- `export/neuroglancer_export.py` — Neuroglancer annotation layer (line annotations JSON)
+- `export/precomputed_segmentation.py` — Corrected precomputed segmentation writer (Neuroglancer binary format with accepted merges applied via union-find)
 
 ---
 
@@ -456,12 +462,45 @@ class Exporter:
 
 ---
 
-### 2.9 `utils` — Shared Utilities
+### 2.9 `evaluation` — Ground Truth Evaluation
 
-- `utils/config.py` — Pipeline configuration (YAML-based)
+**Responsibility:** Evaluate pipeline decisions against ground truth labels to produce precision, recall, and F1 metrics.
+
+**Evaluation approach:** Uses the segmentation `label_id` field as a merge oracle — two fragments with the same `label_id` should be merged; different `label_ids` should not. This approach is applicable when the input segmentation is a "split" oversegmentation of known ground truth labels.
+
+**Three-outcome accounting:**
+
+```python
+def evaluate_decisions(
+    candidates: List[CandidateConnection],
+    store: FragmentStore,
+) -> Dict[str, Any]:
+    """
+    Computes:
+        - TP: accepted + should_merge
+        - FP: accepted + should_not_merge
+        - TN: rejected + should_not_merge
+        - FN: rejected + should_merge
+        - ambiguous_same_label: ambiguous + should_merge
+        - ambiguous_diff_label: ambiguous + should_not_merge
+        - precision, recall, F1 (ambiguous excluded from denominators)
+    """
+```
+
+Ambiguous candidates are tallied separately and excluded from precision/recall computation — they represent explicit uncertainty rather than errors.
+
+**Files:**
+- `evaluation/__init__.py`
+- `evaluation/ground_truth.py` — `evaluate_decisions()` function
+
+---
+
+### 2.10 `utils` — Shared Utilities
+
+- `utils/config.py` — Pipeline configuration (YAML-based, dataclass hierarchy)
 - `utils/logging.py` — Structured logging
 - `utils/spatial.py` — Spatial math utilities (distances, tangents, curvature)
-- `utils/types.py` — Shared type definitions
+- `utils/types.py` — Shared type definitions (`Fragment`, `CandidateConnection`, `ConnectionStatus`, `BoundingBox`, `ValidationResult`, `AssembledStructure`)
 
 ---
 
@@ -516,14 +555,17 @@ validation:
       max_radius_ratio: 3.0
     - name: "BranchingLimitRule"
       max_branches: 10
+    - name: "CompositeScoreRule"
+      reject_threshold: 0.65  # Hard-reject below composite score threshold
 
 assembly:
   min_structure_fragments: 2
   flag_ambiguous: true
 
 export:
-  formats: ["graphml", "csv", "swc"]
+  formats: ["graphml", "csv", "neuroglancer", "precomputed_seg"]
   output_dir: "/output/results"
+  evaluate_ground_truth: false  # Set true when label_id oracle is available
 
 logging:
   level: "INFO"
@@ -581,16 +623,17 @@ logging:
 ## 5. Directory Structure
 
 ```
-connectomics-pipeline/
+postseg-connectomics/
 ├── connectomics_pipeline/
 │   ├── __init__.py
 │   ├── pipeline.py              # Main pipeline orchestrator
+│   ├── cli.py                   # CLI entry point (connectomics-pipeline command)
 │   ├── io/
 │   │   ├── __init__.py
 │   │   ├── volume_reader.py     # Protocol + base
 │   │   ├── hdf5_reader.py
 │   │   ├── zarr_reader.py
-│   │   ├── precomputed_reader.py
+│   │   ├── precomputed_reader.py  # Neuroglancer precomputed input reader
 │   │   └── numpy_reader.py
 │   ├── fragments/
 │   │   ├── __init__.py
@@ -627,7 +670,11 @@ connectomics-pipeline/
 │   │   ├── graph_export.py
 │   │   ├── swc_export.py
 │   │   ├── metadata_export.py
-│   │   └── neuroglancer_export.py
+│   │   ├── neuroglancer_export.py        # Annotation layer (line annotations JSON)
+│   │   └── precomputed_segmentation.py  # Corrected segmentation in Neuroglancer format
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   └── ground_truth.py      # Precision/recall/F1 against label_id oracle
 │   ├── visualization/
 │   │   ├── __init__.py
 │   │   ├── plot_connections.py
@@ -641,25 +688,37 @@ connectomics-pipeline/
 │       └── types.py
 ├── tests/
 │   ├── __init__.py
+│   ├── conftest.py                        # Shared fixtures
 │   ├── test_io.py
 │   ├── test_fragments.py
 │   ├── test_graph.py
 │   ├── test_candidates.py
 │   ├── test_validation.py
 │   ├── test_assembly.py
+│   ├── test_export.py
+│   ├── test_precomputed_segmentation.py
+│   ├── test_precomputed_reader.py
+│   ├── test_zarr_reader.py
+│   ├── test_stitching.py
+│   ├── test_mesh.py
+│   ├── test_spatial.py
+│   ├── test_report.py
+│   ├── test_config.py
+│   ├── test_config_nested.py
+│   ├── test_logging_setup.py
+│   ├── test_cli.py
+│   ├── test_ground_truth.py
+│   ├── test_visualization.py
+│   ├── test_edge_cases.py
 │   └── test_pipeline.py
-├── scripts/
-│   ├── run_pipeline.py          # CLI entry point
-│   ├── inspect_connections.py   # Diagnostic script
-│   └── generate_test_data.py    # Synthetic data generator
 ├── configs/
 │   ├── default.yaml
-│   └── example_small.yaml
+│   └── cremi_sample_a.yaml
 ├── docs/
-│   ├── ARCHITECTURE.md          # This file
-│   └── USER_GUIDE.md
-├── examples/
-│   └── demo_notebook.ipynb
+│   ├── EXPERIMENT_LOG.md        # All pipeline runs with quantitative results
+│   ├── TESTING.md               # Test structure and how to add tests
+│   └── TESTING_PLAN.md          # Phase-by-phase validation strategy and status
+├── ARCHITECTURE.md              # This file
 ├── pyproject.toml
 └── README.md
 ```
