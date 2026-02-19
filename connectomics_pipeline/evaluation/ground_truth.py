@@ -71,11 +71,7 @@ def evaluate_decisions(
 
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = (
-        2.0 * precision * recall / (precision + recall)
-        if (precision + recall) > 0
-        else 0.0
-    )
+    f1 = 2.0 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
     if skipped:
         logger.warning("Skipped %d candidates with missing fragments", skipped)

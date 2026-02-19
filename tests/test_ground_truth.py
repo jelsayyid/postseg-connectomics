@@ -108,12 +108,12 @@ class TestEvaluateDecisions:
     def test_mixed_decisions(self, store_two_neurons):
         """Mixed candidates produce correct TP/FP/TN/FN tallies."""
         candidates = [
-            _make_candidate(0, 0, 1, ConnectionStatus.ACCEPTED),   # TP
-            _make_candidate(1, 2, 3, ConnectionStatus.ACCEPTED),   # TP
-            _make_candidate(2, 0, 2, ConnectionStatus.REJECTED),   # TN
-            _make_candidate(3, 1, 3, ConnectionStatus.REJECTED),   # TN
-            _make_candidate(4, 0, 3, ConnectionStatus.ACCEPTED),   # FP (cross-label)
-            _make_candidate(5, 0, 1, ConnectionStatus.REJECTED),   # FN (same-label rejected)
+            _make_candidate(0, 0, 1, ConnectionStatus.ACCEPTED),  # TP
+            _make_candidate(1, 2, 3, ConnectionStatus.ACCEPTED),  # TP
+            _make_candidate(2, 0, 2, ConnectionStatus.REJECTED),  # TN
+            _make_candidate(3, 1, 3, ConnectionStatus.REJECTED),  # TN
+            _make_candidate(4, 0, 3, ConnectionStatus.ACCEPTED),  # FP (cross-label)
+            _make_candidate(5, 0, 1, ConnectionStatus.REJECTED),  # FN (same-label rejected)
         ]
         result = evaluate_decisions(candidates, store_two_neurons)
         assert result["true_positives"] == 2

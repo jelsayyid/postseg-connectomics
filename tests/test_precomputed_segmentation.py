@@ -17,7 +17,6 @@ from connectomics_pipeline.utils.types import (
     Fragment,
 )
 
-
 RESOLUTION = (40.0, 4.0, 4.0)  # z, y, x nm/voxel
 
 
@@ -84,6 +83,7 @@ def store_for_volume():
 # build_corrected_volume tests
 # ------------------------------------------------------------------
 
+
 class TestBuildCorrectedVolume:
     def test_no_accepted_keeps_components_separate(self, simple_volume, store_for_volume):
         """With no accepted connections, every component keeps its own ID."""
@@ -91,9 +91,7 @@ class TestBuildCorrectedVolume:
             _cand(0, 0, 1, ConnectionStatus.REJECTED),
             _cand(1, 0, 2, ConnectionStatus.REJECTED),
         ]
-        corrected = build_corrected_volume(
-            simple_volume, candidates, store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, candidates, store_for_volume, RESOLUTION)
         # Three components → three distinct non-zero labels
         labels = set(np.unique(corrected)) - {0}
         assert len(labels) == 3
@@ -101,9 +99,7 @@ class TestBuildCorrectedVolume:
     def test_accepted_same_label_merges_components(self, simple_volume, store_for_volume):
         """Accepting frag 0 + frag 1 (both label 1) unifies their component IDs."""
         candidates = [_cand(0, 0, 1, ConnectionStatus.ACCEPTED)]
-        corrected = build_corrected_volume(
-            simple_volume, candidates, store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, candidates, store_for_volume, RESOLUTION)
         # Blob A and blob B now share a label; blob C is different
         labels = set(np.unique(corrected)) - {0}
         assert len(labels) == 2
@@ -117,9 +113,7 @@ class TestBuildCorrectedVolume:
     def test_cross_label_merge_unifies_different_labels(self, simple_volume, store_for_volume):
         """Accepting frag 0 (label 1) + frag 2 (label 2) unifies them."""
         candidates = [_cand(0, 0, 2, ConnectionStatus.ACCEPTED)]
-        corrected = build_corrected_volume(
-            simple_volume, candidates, store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, candidates, store_for_volume, RESOLUTION)
         labels = set(np.unique(corrected)) - {0}
         # frag1 (blob B) is unmerged, frag0 and frag2 share a label → 2 distinct IDs
         assert len(labels) == 2
@@ -138,18 +132,14 @@ class TestBuildCorrectedVolume:
 
     def test_empty_candidates(self, simple_volume, store_for_volume):
         """Empty candidate list produces a valid component-labeled volume."""
-        corrected = build_corrected_volume(
-            simple_volume, [], store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, [], store_for_volume, RESOLUTION)
         labels = set(np.unique(corrected)) - {0}
         assert len(labels) == 3  # three distinct components, no merges
 
     def test_ambiguous_candidates_ignored(self, simple_volume, store_for_volume):
         """Ambiguous candidates do not trigger a merge."""
         candidates = [_cand(0, 0, 1, ConnectionStatus.AMBIGUOUS)]
-        corrected = build_corrected_volume(
-            simple_volume, candidates, store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, candidates, store_for_volume, RESOLUTION)
         labels = set(np.unique(corrected)) - {0}
         assert len(labels) == 3  # no merge applied
 
@@ -159,18 +149,14 @@ class TestBuildCorrectedVolume:
             _cand(0, 0, 1, ConnectionStatus.ACCEPTED),
             _cand(1, 1, 2, ConnectionStatus.ACCEPTED),
         ]
-        corrected = build_corrected_volume(
-            simple_volume, candidates, store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, candidates, store_for_volume, RESOLUTION)
         labels = set(np.unique(corrected)) - {0}
         assert len(labels) == 1
 
     def test_missing_fragment_in_store(self, simple_volume, store_for_volume):
         """Accepted candidate referencing unknown fragment_id is skipped."""
         candidates = [_cand(0, 0, 99, ConnectionStatus.ACCEPTED)]
-        corrected = build_corrected_volume(
-            simple_volume, candidates, store_for_volume, RESOLUTION
-        )
+        corrected = build_corrected_volume(simple_volume, candidates, store_for_volume, RESOLUTION)
         # Should not crash; 3 components remain separate
         labels = set(np.unique(corrected)) - {0}
         assert len(labels) == 3
@@ -195,6 +181,7 @@ class TestBuildCorrectedVolume:
 # ------------------------------------------------------------------
 # write_precomputed tests
 # ------------------------------------------------------------------
+
 
 class TestWritePrecomputed:
     def test_creates_info_file(self, tmp_path, simple_volume):

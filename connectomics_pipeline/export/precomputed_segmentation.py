@@ -88,9 +88,7 @@ def build_corrected_volume(
             missed += 1
 
     if missed:
-        logger.warning(
-            "%d fragments could not be matched to a component via centroid", missed
-        )
+        logger.warning("%d fragments could not be matched to a component via centroid", missed)
 
     # ------------------------------------------------------------------
     # Step 3: union-find over component IDs for accepted connections
