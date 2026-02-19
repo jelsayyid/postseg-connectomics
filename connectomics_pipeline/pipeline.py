@@ -10,6 +10,7 @@ import numpy as np
 
 from connectomics_pipeline.assembly.assembler import Assembler
 from connectomics_pipeline.candidates.generator import CandidateGenerator
+from connectomics_pipeline.evaluation.ground_truth import evaluate_decisions
 from connectomics_pipeline.export.graph_export import export_graphml, export_json
 from connectomics_pipeline.export.metadata_export import (
     export_connection_decisions,
@@ -17,6 +18,10 @@ from connectomics_pipeline.export.metadata_export import (
     export_structure_summaries,
 )
 from connectomics_pipeline.export.neuroglancer_export import export_annotations
+from connectomics_pipeline.export.precomputed_segmentation import (
+    build_corrected_volume,
+    write_precomputed,
+)
 from connectomics_pipeline.export.swc_export import export_swc
 from connectomics_pipeline.fragments.extraction import FragmentExtractor
 from connectomics_pipeline.fragments.mesh import MeshExtractor
@@ -52,6 +57,8 @@ class Pipeline:
         self.candidates: List[CandidateConnection] = []
         self.report: Optional[ValidationReport] = None
         self.structures: List[AssembledStructure] = []
+        self._volume: Optional[np.ndarray] = None
+        self._resolution: Optional[tuple] = None
 
     def run(self, reader: Optional[BaseVolumeReader] = None) -> List[AssembledStructure]:
         """Run the full pipeline.
@@ -79,9 +86,11 @@ class Pipeline:
         if reader is None:
             reader = self._create_reader()
         resolution = reader.resolution
+        self._resolution = resolution
         logger.info("Volume shape: %s, resolution: %s", reader.shape, resolution)
 
-        # 2. Extract fragments
+        # 2. Extract fragments (retain volume for corrected-segmentation export)
+        self._volume = reader.read_all()
         self._extract_fragments(reader, resolution)
 
         # 3. Skeletonize and compute metadata
@@ -220,6 +229,20 @@ class Pipeline:
                     output_dir / "neuroglancer",
                 )
 
+        if "precomputed_seg" in formats:
+            if self._volume is not None and self._resolution is not None:
+                corrected = build_corrected_volume(
+                    self._volume,
+                    self.candidates,
+                    self.store,
+                    self._resolution,
+                )
+                write_precomputed(
+                    corrected,
+                    output_dir / "corrected_segmentation",
+                    self._resolution,
+                )
+
     def _log_summary(self, elapsed: float) -> None:
         """Log pipeline summary statistics."""
         logger.info("=" * 60)
@@ -244,6 +267,24 @@ class Pipeline:
 
         struct_stats = structure_statistics(self.structures)
         logger.info("Structures: %d", struct_stats["count"])
+
+        if self.config.export.evaluate_ground_truth and self.candidates:
+            gt = evaluate_decisions(self.candidates, self.store)
+            logger.info(
+                "Ground truth eval (label-ID oracle): "
+                "precision=%.3f recall=%.3f F1=%.3f "
+                "(TP=%d FP=%d TN=%d FN=%d | ambiguous: %d same-label, %d diff-label)",
+                gt["precision"],
+                gt["recall"],
+                gt["f1"],
+                gt["true_positives"],
+                gt["false_positives"],
+                gt["true_negatives"],
+                gt["false_negatives"],
+                gt["ambiguous_same_label"],
+                gt["ambiguous_diff_label"],
+            )
+
         logger.info("=" * 60)
 
 

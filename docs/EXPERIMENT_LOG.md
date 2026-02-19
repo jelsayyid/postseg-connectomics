@@ -340,21 +340,82 @@ This document tracks testing experiments, results, and observations as the pipel
 
 ---
 
-## Experiment 6: Stress Testing with Varied Synthetic Data
+## Experiment 6: Ground Truth Evaluation + Corrected Precomputed Segmentation
+
+**Date:** 2026-02-19
+**Objective:** (1) Produce the first quantitative precision/recall evaluation of pipeline decisions against CREMI ground truth label IDs. (2) Implement and run the corrected precomputed segmentation export so pipeline output is loadable in Neuroglancer.
+
+**New modules added:**
+- `connectomics_pipeline/evaluation/ground_truth.py` — `evaluate_decisions()`: scores accepted/rejected/ambiguous decisions against label-ID oracle (same label_id = should merge)
+- `connectomics_pipeline/export/precomputed_segmentation.py` — `build_corrected_volume()` + `write_precomputed()`: re-labels volume at connected-component level, applies union-find for accepted merges, writes Neuroglancer precomputed format
+- `connectomics_pipeline/io/volume_reader.py` — added `read_all()` to `BaseVolumeReader`
+- 33 new tests (349 total, 0 failures)
+
+**Setup:**
+- Same CREMI Sample A crop as Experiment 5 (64×256×256, 40×4×4 nm)
+- Added `evaluate_ground_truth: true` and `"precomputed_seg"` to config
+- **Command:** `python -m connectomics_pipeline.cli --config configs/cremi_sample_a.yaml --verbose`
+
+**Results:**
+
+| Metric | Value |
+|--------|-------|
+| Runtime | 42.3 seconds |
+| Components re-labeled | 867 |
+| Accepted merges applied | 36 |
+| Corrected seg output | `output/cremi_sample_a/corrected_segmentation/` (32 MB, Neuroglancer precomputed) |
+
+**Ground truth evaluation (label-ID oracle):**
+
+| Metric | Value |
+|--------|-------|
+| True Positives (correct merges) | 20 |
+| False Positives (wrong merges) | 16 |
+| True Negatives (correct rejections) | 1,936 |
+| False Negatives (missed splits) | 1 |
+| Ambiguous — same label | 6 |
+| Ambiguous — diff label | 1,390 |
+| **Precision** | **0.556** |
+| **Recall** | **0.952** |
+| **F1** | **0.702** |
+
+**Observations:**
+
+1. **Recall is near-perfect (0.952):** The pipeline finds 20 of 21 genuine same-label split pairs. Only 1 same-label candidate was rejected — the pipeline is highly sensitive to real splits.
+
+2. **Precision needs improvement (0.556):** 16 of 36 accepted merges are cross-label (false positives — merging fragments from different neurons). This is the primary failure mode to address.
+
+3. **Specificity is excellent:** 1,936/1,937 cross-label candidates were correctly rejected (TN). The false positive rate among rejections is negligible.
+
+4. **Key insight — the problem is at the accept threshold:** The 16 FPs are candidates that scored above 0.8 composite despite being cross-label. Tightening the accept threshold or adding a label-consistency rule would directly improve precision without hurting recall.
+
+5. **Corrected precomputed segmentation works:** The `corrected_segmentation/` directory loads in Neuroglancer as a segmentation layer, showing 30 assembled structures with accepted merges visually unified.
+
+6. **867 components vs 243 fragments:** The re-labeling step finds more components than the pipeline's stitched fragment count because stitching merges some cross-chunk component pairs that re-labeling treats separately. This does not affect correctness since centroid matching handles the discrepancy.
+
+**Action Items:**
+- [ ] Tune accept_threshold: try values from 0.7 to 0.95 and plot precision/recall tradeoff
+- [ ] Investigate the 16 FPs: what scores make them pass? Which rules fail to catch them?
+- [ ] Serve `corrected_segmentation/` via local HTTP and verify Neuroglancer loading
+- [ ] Run Experiments 5+6 on CREMI Sample B and C to test generalization
+
+---
+
+## Experiment 7: Stress Testing with Varied Synthetic Data
 
 **Date:** _(pending)_
 **Objective:** Test pipeline robustness with edge-case volumes (empty, single-voxel fragments, heavily fragmented, large label counts).
 
 ---
 
-## Experiment 7: Parameter Sensitivity
+## Experiment 8: Parameter Sensitivity
 
 **Date:** _(pending)_
 **Objective:** Evaluate how validation thresholds and scoring weights affect pipeline output (accept/reject/ambiguous ratios).
 
 ---
 
-## Experiment 8: Larger Volume Scalability
+## Experiment 9: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.

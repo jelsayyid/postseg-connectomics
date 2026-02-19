@@ -65,10 +65,11 @@ assembly:
   max_branch_order: 10
 
 export:
-  formats: ["graphml", "csv"]
+  formats: ["graphml", "csv", "neuroglancer", "precomputed_seg"]
   output_dir: "./output/cremi_sample_a"
   include_rejected: false
   include_ambiguous: true
+  evaluate_ground_truth: true
 
 logging:
   level: "INFO"

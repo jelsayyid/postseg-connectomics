@@ -54,6 +54,10 @@ class BaseVolumeReader(ABC):
         size: Tuple[int, ...],
     ) -> np.ndarray: ...
 
+    def read_all(self) -> np.ndarray:
+        """Read the entire volume as a single numpy array."""
+        return self.read_chunk((0, 0, 0), self.shape)
+
     def chunk_iterator(
         self,
         chunk_size: Tuple[int, ...],

@@ -84,6 +84,7 @@ class ExportConfig:
     output_dir: str = "./output"
     include_rejected: bool = False
     include_ambiguous: bool = True
+    evaluate_ground_truth: bool = False
 
 
 @dataclass
