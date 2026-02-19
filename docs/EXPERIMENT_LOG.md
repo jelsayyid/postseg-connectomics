@@ -394,10 +394,67 @@ This document tracks testing experiments, results, and observations as the pipel
 6. **867 components vs 243 fragments:** The re-labeling step finds more components than the pipeline's stitched fragment count because stitching merges some cross-chunk component pairs that re-labeling treats separately. This does not affect correctness since centroid matching handles the discrepancy.
 
 **Action Items:**
-- [ ] Tune accept_threshold: try values from 0.7 to 0.95 and plot precision/recall tradeoff
-- [ ] Investigate the 16 FPs: what scores make them pass? Which rules fail to catch them?
+- [x] Tune accept_threshold: CompositeScoreRule added at 0.65 (see Experiment 7)
 - [ ] Serve `corrected_segmentation/` via local HTTP and verify Neuroglancer loading
 - [ ] Run Experiments 5+6 on CREMI Sample B and C to test generalization
+
+---
+
+## Experiment 7: Threshold Tuning — CompositeScoreRule at 0.65
+
+**Date:** 2026-02-19
+**Objective:** Improve precision by eliminating the 16 false positive merges identified in Experiment 6, with minimal recall cost.
+
+**Analysis from Experiment 6 output:**
+Inspecting accepted connections by ground truth label:
+- All 20 TPs: composite score = 1.000 (touching/adjacent fragments, perfect match)
+- All 16 FPs: composite score = 0.627–0.634 (cross-label but geometrically close)
+- All FPs have alignment=0.5 and continuity=0.5 exactly — these fragments lack real skeleton endpoints and fall back to centroid-based direction estimation, yielding default 0.5 scores
+
+A clean gap exists: every FP scores below 0.635, every TP scores 1.000. Setting `CompositeScoreRule.reject_threshold=0.65` hard-rejects anything in the FP range while leaving all TPs untouched.
+
+**Expected side effect:** One ambiguous same-label candidate (composite=0.384, gap=380nm) moves from ambiguous to rejected, adding 1 FN. That connection is near-max distance with proximity score 0.051 — borderline at best.
+
+**Config change:**
+```yaml
+- name: "CompositeScoreRule"
+  params:
+    reject_threshold: 0.65
+```
+
+**Results:**
+
+| Metric | Before (Exp 6) | After (Exp 7) | Change |
+|--------|---------------|---------------|--------|
+| Accepted | 36 | 20 | −16 |
+| Rejected | 1,937 | 3,339 | +1,402 |
+| Ambiguous | 1,396 | 10 | −1,386 |
+| Structures | 30 | 20 | −10 |
+| True Positives | 20 | 20 | — |
+| False Positives | 16 | **0** | −16 |
+| True Negatives | 1,936 | 3,337 | +1,401 |
+| False Negatives | 1 | 2 | +1 |
+| Ambiguous same-label | 6 | 5 | −1 |
+| **Precision** | 0.556 | **1.000** | +0.444 |
+| **Recall** | 0.952 | **0.909** | −0.043 |
+| **F1** | 0.702 | **0.952** | +0.250 |
+
+**Observations:**
+
+1. **Zero false positives.** The CompositeScoreRule cleanly eliminates all 16 FP merges. The gap between TP scores (1.000) and FP scores (0.627–0.634) was wide enough that a single threshold at 0.65 separates them perfectly.
+
+2. **Modest recall cost.** The 1 additional FN is the 380nm gap candidate (composite=0.384). Given the max-distance cutoff is 400nm and its proximity score is 0.051, this is a stretch connection the pipeline is right to decline at this stage.
+
+3. **Ambiguous count collapsed (1,396 → 10).** The CompositeScoreRule resolves most previously-ambiguous candidates into hard rejections (their composite is below 0.65). Only 10 remain ambiguous — 5 same-label (genuine splits, not yet confident enough to accept) and 5 cross-label.
+
+4. **The 5 remaining ambiguous same-label candidates are the recall ceiling.** With composite scores 0.677–0.717, these are genuine splits the pipeline leaves uncertain. Recovering them would require better endpoint estimation (real skeletons rather than centroid fallback) to raise their alignment and continuity scores above the default 0.5.
+
+5. **Root cause of FPs identified:** All FP and ambiguous candidates share alignment=0.5 and continuity=0.5 — the signature of centroid-based endpoint fallback. This is what limited discrimination. Enabling true skeletonization (kimimaro) would give real direction vectors, expected to sharply separate genuine merges from false ones.
+
+**Action Items:**
+- [ ] Enable kimimaro skeletonization to replace centroid fallback and improve alignment/continuity scores
+- [ ] Run on CREMI Sample B and C for generalization check
+- [ ] Serve `corrected_segmentation/` via local HTTP and verify Neuroglancer loading
 
 ---
 

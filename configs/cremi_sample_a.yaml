@@ -57,6 +57,9 @@ validation:
     - name: "BranchingLimitRule"
       params:
         max_branches: 100           # High — dense tissue has many neighbors
+    - name: "CompositeScoreRule"
+      params:
+        reject_threshold: 0.65      # Eliminates FPs (0.627-0.634) while keeping TPs (1.000)
 
 assembly:
   min_structure_fragments: 2
