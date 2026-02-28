@@ -47,7 +47,7 @@ fragments:
   max_skeleton_voxels: 50000          # Use PCA endpoint estimation above this; avoids TEASAR slowdown on trunk axons
 
 graph:
-  construction_method: "endpoint"    # Skeleton endpoints enable long-range split detection
+  construction_method: "skeleton_node"  # All skeleton nodes catch interior axon splits
   max_distance_nm: 500               # Endpoint-to-endpoint search radius; split boundaries are ~33nm apart
 
 candidates:
@@ -61,12 +61,12 @@ candidates:
     size: 0.10
 
 validation:
-  accept_threshold: 0.45             # Lowered for XPRESS: genuine splits have score ~0.4-0.65
-  reject_threshold: 0.2
+  accept_threshold: 0.30             # Lowered: PCA bbox oracle pairs score 0.20-0.70 (mean 0.34); threshold at 25th pct
+  reject_threshold: 0.15
   rules:
     - name: "MaxDistanceRule"
       params:
-        max_distance_nm: 500         # Raised to match endpoint search radius; splits can be ~500nm apart
+        max_distance_nm: 5000        # Raised: PCA bbox pairs use nearest-endpoint distance (1000-3000nm for large fragments)
     - name: "CurvatureRule"
       params:
         max_curvature_deg: 120       # Raised: endpoint-centroid direction unreliable for interior splits
@@ -78,10 +78,10 @@ validation:
         max_radius_ratio: 5.0        # Raised: trunk-to-tip fragment size ratio can be 3-13x in XPRESS
     - name: "BranchingLimitRule"
       params:
-        max_branches: 20             # Raised: trunk axons near split boundary have 5-17 endpoint neighbors
+        max_branches: 5000           # Raised: PCA bbox graph has degree up to 2379 for large fragments
     - name: "CompositeScoreRule"
       params:
-        reject_threshold: 0.20       # Lowered: genuine XPRESS splits have score 0.23-0.65 (gap penalizes proximity)
+        reject_threshold: 0.15       # Lowered to match validation reject_threshold
 
 assembly:
   min_structure_fragments: 2

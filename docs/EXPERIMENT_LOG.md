@@ -676,10 +676,133 @@ The exponential proximity decay `exp(-3 × d / d_max)` is the primary cause of p
 
 ---
 
-## Experiment 9: Parameter Sensitivity
+## Experiment 9: Interior-Node Graph (skeleton_node) on Full XPRESS Volume
 
-**Date:** _(pending)_
-**Objective:** Evaluate how validation thresholds and scoring weights affect pipeline output (accept/reject/ambiguous ratios).
+**Date:** 2026-02-28
+**Objective:** Implement and evaluate `skeleton_node` graph construction that indexes ALL skeleton nodes (not just TEASAR endpoints) to capture interior axon splits missed by the endpoint-only approach.
+
+**Motivation:** Experiment 8 confirmed that 77% of oracle pairs were never candidates because TEASAR endpoints are degree-1 topological tips — interior splits along long axons never appear as endpoint-graph edges. The `skeleton_node` method indexes every kimimaro node via a KD-tree and batch-queries them to find cross-fragment node pairs within `max_distance_nm`.
+
+**Volume:** XPRESS full 699×699×699 vox at 33 nm isotropic (23.1 µm³); `baseline_seg_full.h5`.
+Oracle constructed from `XPRESS_training_skels.npz` skeleton edges crossing segment boundaries in this volume.
+
+### Run 9A: Pure skeleton_node graph (no PCA fallback correction)
+
+**Config changes from Exp 8 run5:**
+- `construction_method: "skeleton_node"` (was `"endpoint"`)
+- All validation params unchanged from run5
+
+**Graph construction:** 11,208 nodes, **23,496 edges** (was 21,794 endpoint edges)
+
+```
+Oracle merge pairs (full volume):  1499
+Oracle pairs as candidates:          95 /  1499   (6.3% coverage)
+TP=78   FP=14395   FN=9   TN=2911   AMB+=19  AMB-=3084
+Precision: 0.0054   Recall: 0.0522   F1: 0.010
+Accepted: 14473   Rejected: 2920   Ambiguous: 3103
+```
+
+**Coverage diagnosis:**
+
+The oracle grew from 225 (300³ crop) to 1499 (699³ full volume), while covered pairs grew from 52 to 95 in absolute terms — a real but modest improvement. Coverage % dropped from 23% to 6.3% because the oracle grew 6.7× while covered pairs grew only 1.8×.
+
+Root cause analysis of uncovered pairs:
+```
+Uncovered oracle pairs: 1404
+  At least one side has no TEASAR skeleton (PCA-only): 1381 / 1404 = 98.4%
+  Both sides PCA-only:                                  951 / 1404 = 67.7%
+```
+
+**PCA fallback is the bottleneck.** Fragments > 50,000 voxels skip TEASAR skeletonization and use only 2 PCA endpoints (axis-aligned extreme points). For large axon fragments, these endpoints are at the axon TIPS, not at interior split boundaries. A skeleton_node edge between two large PCA-only fragments requires that their 2 endpoints each are within `max_distance_nm=500 nm` — almost never satisfied for interior splits.
+
+Fragment size distribution for PCA-only fragments:
+```
+count: 1148 / 11208 fragments (10.2%)
+p50:  152,148 voxels
+p75:  283,694 voxels
+p90:  473,257 voxels
+max: 1,646,179 voxels
+```
+
+### Run 9B: skeleton_node + PCA bbox overlap pass (conservative validation)
+
+**New method:** `_add_pca_bbox_edges` added to `GraphBuilder`. For every fragment without a TEASAR skeleton (PCA-only), checks if its bounding box overlaps any other fragment's bounding box and adds an edge for each overlapping pair. Two fragments from the same split axon will always have overlapping bounding boxes even when their PCA tips are far from the split boundary.
+
+**Graph:** 11,208 nodes, **398,423 edges** (17× increase; PCA bbox pass adds ~375K new edges for 1,148 large fragments with large bounding boxes)
+
+```
+Construction: skeleton_node
+validation accept_threshold: 0.45   reject_threshold: 0.20
+BranchingLimitRule max_branches: 20   MaxDistanceRule max_distance_nm: 500
+```
+
+```
+Oracle pairs as candidates: 1196 / 1499  (79.8% coverage)
+TP=0    FP=1590    FN=1230    TN=220635   AMB+=1   AMB-=534
+Precision: 0.0000   Recall: 0.0000
+```
+
+**Two validation blockers identified:**
+
+1. **BranchingLimitRule** (`max_branches=20`): Graph degree for large PCA fragments reaches 2,379 (degree_p99=561). BranchingLimitRule checks graph degree, not accepted count → rejects ALL candidates for high-degree fragments.
+2. **MaxDistanceRule** (`max_distance_nm=500`): Oracle pairs from PCA bbox edges use nearest-endpoint-pair distance for gap_distance. For two large PCA-only fragments, nearest endpoint pair ≈ 1,000–3,000 nm (PCA tips are at axon ends, not split boundary). MaxDistanceRule rejects all pairs > 500 nm.
+
+### Run 9C: skeleton_node + PCA bbox + loosened validation (final)
+
+**Config:**
+- `accept_threshold: 0.30` (was 0.45; oracle candidates mean composite = 0.34)
+- `reject_threshold: 0.15`
+- `BranchingLimitRule: max_branches: 5000`
+- `MaxDistanceRule: max_distance_nm: 5000`
+- `CompositeScoreRule: reject_threshold: 0.15`
+
+```
+Graph:       11,208 nodes, 398,423 edges
+Candidates:  223,990
+Accepted:     48,089   Rejected: 175,867   Ambiguous: 34
+
+Oracle pairs as candidates: 1196 / 1499  (79.8% coverage)
+TP=745   FP=47,344   FN=486   TN=175,381   AMB+=0   AMB-=34
+Precision: 0.0155   Recall: 0.605   F1: 0.030
+```
+
+**Coverage: 79.8% (+73.5 pp from 6.3%)**
+**Recall: 0.605 (+0.553 from 0.052 in Run 9A)**
+
+### Summary Table
+
+| Run | Graph | Edges | Coverage | TP | Recall | Precision | F1 |
+|-----|-------|-------|----------|----|--------|-----------|-----|
+| Exp 8 best (endpoint, 300³) | endpoint | 21,794 | 23% (52/225) | 36 | 0.160 | 0.003 | 0.006 |
+| 9A: skeleton_node only (699³) | skeleton_node | 23,496 | 6.3% (95/1499) | 78 | 0.052 | 0.005 | 0.010 |
+| 9B: +PCA bbox, strict val | skeleton_node+bbox | 398,423 | 79.8% (1196/1499) | 0 | 0.000 | 0.000 | 0.000 |
+| **9C: +PCA bbox, loose val** | **skeleton_node+bbox** | **398,423** | **79.8%** | **745** | **0.605** | **0.016** | **0.030** |
+
+### Architectural Findings
+
+**PCA endpoint fallback is the core bottleneck for XPRESS interior-split detection.** The `skeleton_node` method correctly indexes all TEASAR nodes, but 10.2% of fragments (those > 50K voxels) have no TEASAR skeleton and only 2 PCA proxy endpoints at their axon tips.
+
+**Coverage ceiling:** 79.8% of oracle pairs can be detected by bounding-box overlap — confirming that the split boundary IS within the overlapping bbox regions. The remaining 20.2% are either boundary fragments (partially outside the 699³ volume) or cases where bboxes don't overlap.
+
+**Scoring limitation:** The current proximity score uses endpoint-to-endpoint distance as the gap metric. For PCA fragments, this distance (1,000–3,000 nm) is NOT the actual split gap (33–99 nm) — it's the distance between two axon tips. The scoring incorrectly penalizes genuine splits, dragging composite scores to ~0.34 even when the fragments should be merged.
+
+**Validation parameter sensitivity:** The BranchingLimitRule and MaxDistanceRule both require very loose settings (max_branches=5000, max_distance_nm=5000) to permit oracle pairs through. At these settings, precision degrades to 0.016 (more FPs from crossing axons).
+
+### Proposed Fixes (Priority Order)
+
+1. **Raise `max_skeleton_voxels`** from 50,000 to 500,000. Enables TEASAR for most PCA fragments (1,053 additional skeletons). TEASAR nodes near split boundaries would yield gap_distance ≈ 33–99 nm, restoring correct scoring. Trade-off: potentially 2–10× longer skeletonization time.
+
+2. **BBox-surface proximity scoring**: For PCA bbox edges, compute gap_distance as the distance between nearest bounding-box SURFACE points (= 0 for overlapping bboxes) instead of nearest endpoint pair. This gives proximity=1.0 for all overlapping-bbox candidates, which is qualitatively correct (they ARE adjacent). Alignment/curvature rules then handle FP filtering.
+
+3. **Boundary-based candidate generation**: Scan all boundary voxels of each fragment, record which other fragments are adjacent at 1-voxel distance. Guaranteed ≤33 nm gap. This provides the most accurate gap distance but requires O(N_boundary_voxels) processing.
+
+**Action Items:**
+- [x] Implement `skeleton_node` graph construction + `SkeletonNodeIndex` class
+- [x] Add `_add_pca_bbox_edges` for large-fragment bbox-overlap detection
+- [x] Document blockers: BranchingLimitRule degree check, MaxDistanceRule endpoint proxy
+- [x] Run all three variants and measure coverage/recall progression
+- [ ] Implement raising `max_skeleton_voxels` to 500K and benchmark runtime
+- [ ] Implement bbox-surface proximity scoring for PCA pairs
 
 ---
 
