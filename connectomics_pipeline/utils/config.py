@@ -34,6 +34,7 @@ class FragmentConfig:
             "dust_threshold": 100,
         }
     )
+    max_skeleton_voxels: int = 50000  # Use PCA endpoints above this threshold
 
 
 @dataclass

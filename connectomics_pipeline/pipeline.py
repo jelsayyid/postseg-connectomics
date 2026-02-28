@@ -173,18 +173,62 @@ class Pipeline:
 
     def _compute_geometry(self, resolution) -> None:
         """Compute skeletons, meshes, and endpoints for all fragments."""
-        if self.config.fragments.extract_skeletons:
+        if self.config.fragments.extract_skeletons and self._volume is not None:
             logger.info("Skeletonizing fragments...")
             skeletonizer = Skeletonizer(
                 method=self.config.fragments.skeleton_method,
                 resolution=resolution,
                 params=self.config.fragments.skeleton_params,
             )
-            # Note: skeletonization requires per-fragment voxel data which
-            # would need to be re-read from the volume. For now, compute
-            # endpoints from centroids for fragments without skeletons.
+            res = np.array(resolution, dtype=float)
+            vol_shape = np.array(self._volume.shape)
+            skeletonized = failed = 0
 
-        # Compute endpoints from skeletons or centroids
+            for frag in self.store.all_fragments():
+                # Convert bounding box (nm) to voxel indices
+                min_vox = np.round(frag.bounding_box.min_corner / res).astype(int)
+                max_vox = np.round(frag.bounding_box.max_corner / res).astype(int)
+                min_vox = np.clip(min_vox, 0, vol_shape - 1)
+                max_vox = np.clip(max_vox, min_vox + 1, vol_shape)
+
+                slices = tuple(slice(int(mn), int(mx)) for mn, mx in zip(min_vox, max_vox))
+                subvol = self._volume[slices]
+                mask = (subvol == frag.label_id).astype(np.uint32)
+
+                voxel_count = int(mask.sum())
+                if voxel_count < self.config.fragments.min_voxel_count:
+                    failed += 1
+                    continue
+
+                max_skel_vox = self.config.fragments.max_skeleton_voxels
+                if voxel_count > max_skel_vox:
+                    # For very large fragments, PCA gives axis-aligned endpoints
+                    # much faster than TEASAR and captures the two axon tips.
+                    frag.endpoints = _pca_endpoints(mask, min_vox, res)
+                    skeletonized += 1
+                    continue
+
+                try:
+                    # Use label_id=1 with binary mask to avoid uint32 overflow
+                    # on large original label IDs (XPRESS labels can be >100M)
+                    skel = skeletonizer.skeletonize(mask, label_id=1)
+                    if skel is not None and skel.num_nodes > 0:
+                        # kimimaro outputs local physical coords (anisotropy * voxel_idx)
+                        # Translate to global physical space by adding bbox min corner
+                        skel.nodes += min_vox * res
+                        frag.skeleton = skel
+                        skeletonized += 1
+                except Exception:
+                    failed += 1
+
+            logger.info(
+                "Skeletonization: %d/%d fragments skeletonized (%d failed/skipped)",
+                skeletonized,
+                len(self.store),
+                failed,
+            )
+
+        # Compute endpoints from skeletons (terminal nodes) or centroid fallback
         for frag in self.store.all_fragments():
             if not frag.endpoints:
                 frag.endpoints = compute_endpoints(frag)
@@ -286,6 +330,26 @@ class Pipeline:
             )
 
         logger.info("=" * 60)
+
+
+def _pca_endpoints(mask: np.ndarray, min_vox: np.ndarray, res: np.ndarray) -> list:
+    """Fast PCA-based endpoint estimation for large fragments.
+
+    Returns the two voxels at the extremes of the principal axis, translated
+    to global physical coordinates.  O(N) in the number of foreground voxels.
+    Used as a TEASAR substitute when voxel_count > max_skeleton_voxels.
+    """
+    coords = np.argwhere(mask)  # (N, 3) local voxel coords
+    if len(coords) < 2:
+        return [(coords[0] + min_vox) * res] if len(coords) == 1 else []
+    centered = coords - coords.mean(axis=0)
+    # SVD: Vt[0] is the first right singular vector (principal axis)
+    _, _, Vt = np.linalg.svd(centered, full_matrices=False)
+    principal = Vt[0]
+    proj = centered @ principal
+    pt1 = (coords[np.argmin(proj)] + min_vox) * res
+    pt2 = (coords[np.argmax(proj)] + min_vox) * res
+    return [pt1, pt2]
 
 
 def _compute_chunk_pairs(chunk_origins, chunk_size, overlap):

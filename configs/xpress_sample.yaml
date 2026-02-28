@@ -1,0 +1,103 @@
+# XPRESS Challenge — Sample training volume (cropped subvolume)
+# X-ray holographic nanotomography (XNH) of mouse brain white matter.
+# Myelinated cortical axons: tubular, low-branching — ideal domain for this pipeline.
+# Full training volume: 1200×1200×1200 vox at 33nm isotropic.
+# Start with a manageable crop, e.g. 300×300×300 voxels.
+#
+# Download data before running:
+#   Segmentation: https://github.com/htem/xpress-challenge-files/releases/download/baseline/baseline_seg_training.h5
+#   GT skeletons:  https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_training_skels.npz
+#   Place both in data/xpress/
+#
+# HDF5 dataset path inside baseline_seg_training.h5:
+#   Check with: python -c "import h5py; f=h5py.File('data/xpress/baseline_seg_training.h5','r'); print(list(f.keys()))"
+#   Set the 'dataset' field below to the correct path (likely 'main' or 'volumes/labels/neuron_ids').
+#
+# To crop the volume before running:
+#   python -c "
+#   import h5py, numpy as np
+#   with h5py.File('data/xpress/baseline_seg_training.h5','r') as f:
+#       seg = f['main'][100:400, 100:400, 100:400]  # adjust dataset key if needed
+#   with h5py.File('data/xpress/baseline_seg_crop.h5','w') as f:
+#       f.create_dataset('labels', data=seg)
+#   print('Crop saved: shape', seg.shape, 'labels', len(np.unique(seg)))
+#   "
+
+pipeline:
+  name: "xpress-training"
+  version: "0.1.0"
+  seed: 42
+
+input:
+  format: "hdf5"
+  path: "/tmp/xpress_full.h5"
+  dataset: "labels"
+  resolution: [33, 33, 33]                     # XPRESS isotropic 33nm voxels (z, y, x)
+  chunk_size: [300, 300, 300]                  # larger chunks = fewer chunks for 699^3 volume
+  chunk_overlap: [16, 16, 16]
+
+fragments:
+  min_voxel_count: 100                # ~30nm^3 physical minimum (more lenient than CREMI due to isotropic)
+  extract_skeletons: true             # Required: endpoints near axon tips enable proximity matching at split points
+  extract_meshes: false
+  skeleton_method: "teasar"
+  skeleton_params:
+    invalidation_d0: 10
+    dust_threshold: 100
+  max_skeleton_voxels: 50000          # Use PCA endpoint estimation above this; avoids TEASAR slowdown on trunk axons
+
+graph:
+  construction_method: "endpoint"    # Skeleton endpoints enable long-range split detection
+  max_distance_nm: 500               # Endpoint-to-endpoint search radius; split boundaries are ~33nm apart
+
+candidates:
+  max_endpoint_distance_nm: 400
+  min_alignment_score: 0.3
+  min_composite_score: 0.2
+  weights:
+    proximity: 0.35
+    alignment: 0.30                  # Alignment is reliable here: axons have clear long-axis direction
+    continuity: 0.25
+    size: 0.10
+
+validation:
+  accept_threshold: 0.45             # Lowered for XPRESS: genuine splits have score ~0.4-0.65
+  reject_threshold: 0.2
+  rules:
+    - name: "MaxDistanceRule"
+      params:
+        max_distance_nm: 500         # Raised to match endpoint search radius; splits can be ~500nm apart
+    - name: "CurvatureRule"
+      params:
+        max_curvature_deg: 120       # Raised: endpoint-centroid direction unreliable for interior splits
+    - name: "DirectionReversalRule"
+      params:
+        min_alignment: 0.0
+    - name: "SizeDiscrepancyRule"
+      params:
+        max_radius_ratio: 5.0        # Raised: trunk-to-tip fragment size ratio can be 3-13x in XPRESS
+    - name: "BranchingLimitRule"
+      params:
+        max_branches: 20             # Raised: trunk axons near split boundary have 5-17 endpoint neighbors
+    - name: "CompositeScoreRule"
+      params:
+        reject_threshold: 0.20       # Lowered: genuine XPRESS splits have score 0.23-0.65 (gap penalizes proximity)
+
+assembly:
+  min_structure_fragments: 2
+  flag_ambiguous: true
+  detect_cycles: true
+  max_branch_order: 5               # Low — white matter has few branch points
+
+export:
+  formats: ["graphml", "csv"]        # precomputed_seg disabled: 699^3 volume too large to write in-process
+  output_dir: "./output/xpress_training"
+  include_rejected: false
+  include_ambiguous: true
+  evaluate_ground_truth: false       # Uses label-ID oracle — not valid for XPRESS baseline seg
+                                     # Run xpress_evaluate.py separately for skeleton-based evaluation
+
+logging:
+  level: "INFO"
+  file: "pipeline.log"
+  console: true

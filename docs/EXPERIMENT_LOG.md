@@ -458,21 +458,232 @@ A clean gap exists: every FP scores below 0.635, every TP scores 1.000. Setting 
 
 ---
 
-## Experiment 7: Stress Testing with Varied Synthetic Data
+## Assessment: XPRESS Challenge as Primary Evaluation Dataset
 
-**Date:** _(pending)_
-**Objective:** Test pipeline robustness with edge-case volumes (empty, single-voxel fragments, heavily fragmented, large label counts).
+**Date:** 2026-02-27
+**Status:** Infrastructure complete — data download pending
+
+### Why XPRESS is a better domain fit than CREMI
+
+The CREMI evaluation (Experiments 5–7) used human-annotated Drosophila EM labels (`volumes/labels/neuron_ids`). This is the ground truth segmentation, not the output of an automated segmenter. The "splits" we evaluated were primarily crop-boundary artifacts in a dataset that is otherwise error-free. Additionally, Drosophila synaptic neuropil contains densely packed dendrites, dendritic spines, and complex arbors — structures that break at orthogonal angles and lack the clear axial directionality our alignment and continuity scores assume.
+
+**XPRESS** (X-ray holographic nanotomography of mouse brain white matter) is a significantly better match:
+
+| Property | CREMI (Drosophila EM) | XPRESS (Mouse XNH) |
+|---|---|---|
+| Structure type | Dense neuropil, spines, dendrites | Myelinated axons |
+| Break geometry | Often orthogonal (spine necks, etc.) | Primarily along-axis |
+| Branching | High (dendritic arbors) | Low (white matter) |
+| Pipeline alignment/continuity scores | Centroid fallback → 0.5 (limited signal) | Real endpoint direction → meaningful score |
+| Input segmentation | Human-annotated GT (near-perfect) | Automated baseline (real errors present) |
+| GT format | Label IDs (same ID = same neuron) | Skeleton graphs (edges crossing boundaries = split errors) |
+
+### XPRESS data and ground truth format
+
+**Data source:** https://xpress.grand-challenge.org/
+
+| File | URL | Description |
+|------|-----|-------------|
+| `baseline_seg_training.h5` | https://github.com/htem/xpress-challenge-files/releases/download/baseline/baseline_seg_training.h5 | Automated segmentation (input to pipeline) |
+| `XPRESS_training_skels.npz` | https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_training_skels.npz | GT skeleton graphs (merge oracle) |
+| `baseline_seg_validation.h5` | https://github.com/htem/xpress-challenge-files/releases/download/baseline/baseline_seg_validation.h5 | Validation set segmentation |
+| `XPRESS_validation_skels.npz` | https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_validation_skels.npz | Validation set GT skeletons |
+
+**Volume specs:** 1200×1200×1200 voxels at 33nm isotropic resolution (~39.6 µm³).
+**Skeleton format:** `.npz` files containing `{skel_id: nx.Graph}` dicts. Each graph node has a `position` attribute: `(x_nm, y_nm, z_nm)`.
+**Merge oracle:** An edge in the skeleton that spans two different segment IDs = a split error = the pipeline should accept a merge between those fragments.
+
+### Infrastructure added (2026-02-27)
+
+- `connectomics_pipeline/evaluation/xpress_ground_truth.py` — Three functions:
+  - `load_skeleton_graphs(npz_path)` — Loads XPRESS .npz skeleton files into a list of NetworkX graphs
+  - `build_merge_oracle(graphs, segmentation, voxel_size_nm, seg_offset_voxels)` — Builds the set of (seg_a, seg_b) pairs that should be merged, derived from skeleton edges crossing segment boundaries
+  - `evaluate_decisions_xpress(candidates, store, oracle)` — Scores pipeline decisions; same precision/recall/F1 interface as `ground_truth.evaluate_decisions()`
+- `tests/test_xpress_ground_truth.py` — 22 tests, all passing
+- `configs/xpress_sample.yaml` — Pipeline config for XPRESS, with inline instructions for data download, HDF5 inspection, and volume cropping
+
+**Total tests now: 371 (349 + 22), 0 failures.**
+
+### Action items to run Experiment 8 (XPRESS)
+
+1. **Download files** (user must do — ~3-5 GB each):
+   ```bash
+   mkdir -p data/xpress
+   cd data/xpress
+   wget https://github.com/htem/xpress-challenge-files/releases/download/baseline/baseline_seg_training.h5
+   wget https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_training_skels.npz
+   ```
+
+2. **Inspect HDF5 dataset path** (update `configs/xpress_sample.yaml`):
+   ```bash
+   python -c "import h5py; f=h5py.File('data/xpress/baseline_seg_training.h5','r'); print(list(f.keys())); f.close()"
+   ```
+
+3. **Crop to manageable size** (run once, saves ~10×10×10 seconds of pipeline time):
+   ```bash
+   python -c "
+   import h5py, numpy as np
+   with h5py.File('data/xpress/baseline_seg_training.h5','r') as f:
+       ds_key = list(f.keys())[0]  # update if needed
+       seg = f[ds_key][100:400, 100:400, 100:400]
+   with h5py.File('data/xpress/baseline_seg_crop.h5','w') as f:
+       f.create_dataset('labels', data=seg)
+   print('Saved crop. Shape:', seg.shape, '| Unique labels:', len(np.unique(seg)))
+   "
+   ```
+
+4. **Run pipeline:**
+   ```bash
+   python -m connectomics_pipeline.cli --config configs/xpress_sample.yaml --verbose
+   ```
+
+5. **Run XPRESS skeleton evaluation** (after pipeline produces candidates):
+   ```python
+   import h5py, numpy as np
+   from connectomics_pipeline.evaluation.xpress_ground_truth import (
+       load_skeleton_graphs, build_merge_oracle, evaluate_decisions_xpress
+   )
+   with h5py.File('data/xpress/baseline_seg_crop.h5', 'r') as f:
+       seg = f['labels'][:]
+   graphs = load_skeleton_graphs('data/xpress/XPRESS_training_skels.npz')
+   oracle = build_merge_oracle(graphs, seg, voxel_size_nm=(33, 33, 33),
+                               seg_offset_voxels=(100, 100, 100))  # match crop offset
+   result = evaluate_decisions_xpress(pipeline_candidates, pipeline_store, oracle)
+   print(result)
+   ```
 
 ---
 
-## Experiment 8: Parameter Sensitivity
+## Assessment: ConnectomeBench (arXiv:2511.05542)
+
+**Date:** 2026-02-27
+
+**Paper:** *ConnectomeBench: Can LLMs Proofread the Connectome?* (Nov 2025)
+
+**What it is:** A Q&A benchmark for evaluating LLMs on three connectomics proofreading tasks: (1) segment type identification, (2) split error correction, (3) merge error detection. Tested on mouse visual cortex and complete Drosophila brain datasets. LLMs score 75–85% accuracy on split error correction vs. 50% chance.
+
+**Is it feasible to test our pipeline against?**
+
+Not directly. The benchmark is structured as multiple-choice Q&A for LLMs — models are presented with image crops and asked which of several fragment candidates should be merged. Our pipeline is a rule-based system that takes a volumetric segmentation as input and outputs structured merge decisions, not text answers.
+
+The tasks conceptually overlap (split error correction = exactly what we do), but:
+- The evaluation interface is different (LLM text vs. pipeline accept/reject/ambiguous)
+- The benchmark data is not published as a downloadable segmentation volume
+- Adapting our pipeline to answer ConnectomeBench questions would require major re-framing
+
+**Useful context:** The ConnectomeBench results (75–85% LLM accuracy on split correction) provide a rough performance reference for the difficulty of the task. Our CREMI result (F1 = 0.952 after tuning, on a controlled dataset) is not directly comparable due to different datasets and evaluation setups.
+
+**Conclusion:** Note for future reference, but deprioritize. Focus on XPRESS as the primary evaluation target.
+
+---
+
+## Experiment 8: XPRESS Challenge Evaluation
+
+**Date:** 2026-02-28
+**Objective:** First run on XPRESS data (mouse white matter XNH). Evaluate pipeline on automated (imperfect) segmentation with skeleton-based ground truth. This is the most domain-appropriate test for the pipeline's tubular-structure assumptions.
+
+**Dataset:**
+- X-ray holographic nanotomography (XNH) of mouse brain white matter (myelinated cortical axons)
+- Full volume: 1200×1200×1200 voxels at 33 nm isotropic; evaluated on 699³ sub-volume (local offset (252,252,252))
+- Baseline segmentation: `baseline_seg_training.h5` (HTEM lab, Harvard)
+- Ground truth: `XPRESS_training_skels.npz` — 1 combined NetworkX graph, 31,508 nodes, 30,634 edges
+- Skeleton oracle: 225 cross-label edges (genuine segment split errors), 10,106/31,508 nodes mapped into sub-volume
+
+**Setup:**
+- Config: `configs/xpress_sample.yaml`
+- Pipeline commit: e045206 (CREMI results) → tuning commits (this session)
+- Fragment extraction: 11,208 fragments from 27 chunks of 300³ with 16-voxel overlap (stitched from 14,591)
+- Skeletonization: kimimaro (TEASAR) for fragments <50,000 voxels; PCA endpoints for larger (all 11,208 attempted, 11,160 skeletonized)
+- Graph construction: endpoint-based (`EndpointIndex` KD-tree), max distance 500 nm
+- Candidates generated: 18,826 (from 21,794 edges)
+- Ground truth evaluation: skeleton oracle via `evaluate_decisions_xpress()`
+
+---
+
+**Key Finding: Coverage Gap (Architectural Limitation)**
+
+Only **52 of 225 oracle pairs (23%)** ever appear as pipeline candidates. The remaining 173 pairs are completely invisible — their split boundaries occur at the **interior of long axon fragments**, not at TEASAR skeleton endpoints. TEASAR reports degree-1 (topological tip) nodes as endpoints; interior splits are not tip nodes and thus never generate endpoint-proximity candidates.
+
+This 77% coverage gap is a **fundamental architectural limitation** of the endpoint-based graph construction for long straight axons. It cannot be fixed by threshold tuning.
+
+---
+
+**Iterative Tuning (this session):**
+
+| Run | Key Change | Accepted | Oracle TPs (of 52 candidates) | Notes |
+|-----|-----------|---------|------|-------|
+| b7a49d3 | Lowered thresholds, endpoint graph | 826 | 1 | CompositeScoreRule=0.20 unlocked oracle pairs |
+| run3 | CurvatureRule→skeleton tangent + SizeDiscrepancy 5.0 | 978 | 3 | Kimimaro nodes unordered → tangent garbage → worse |
+| run4 | Reverted to endpoint-centroid + CurvatureRule 90° | 2168 | 3 | BranchingLimitRule dominant hard-rejecter |
+| **run5 (best)** | **BranchingLimit 20 + CurvatureRule 120° + SizeDiscrepancy 5.0** | **13,221** | **36** | Best recall; poor precision |
+
+**Best Result (run5):**
+
+```
+Skeleton oracle:  225 merge pairs (genuine split errors)
+  As candidates:  52 / 225  (23% coverage)
+  True Positives: 36 / 52   (69% of candidates accepted)
+  Precision:      0.003   Recall: 0.160   F1: 0.006
+
+Accepted breakdown (13,221 total):
+  Same-label (stitching artifacts):  1,167
+  Oracle cross-label TPs:               36
+  Other cross-label FPs:            12,018
+```
+
+**Hard-Reject Rule Breakdown (why oracle candidates are rejected):**
+
+| Rule | Threshold | Oracle pairs rejected |
+|------|-----------|----------------------|
+| BranchingLimitRule | max_branches=5 (original) | 33 of 52 |
+| CurvatureRule (endpoint-centroid) | 90° | 11 of 52 |
+| SizeDiscrepancyRule | radius_ratio=2.0 | 19 of 52 |
+| SizeDiscrepancyRule | radius_ratio=5.0 (fixed) | 4 of 52 |
+
+Root causes identified:
+1. **BranchingLimitRule**: Trunk axons near split boundaries have many endpoint-graph neighbors (degree 5–17 measured); `max_branches=5` rejected 33/52 oracle pairs. Raising to 20 fixed these.
+2. **SizeDiscrepancyRule**: Trunk-to-stub fragment size ratios reach 13× in XPRESS; `max_radius_ratio=2.0` rejected 19/52. Raising to 5.0 reduced to 4.
+3. **CurvatureRule with unordered kimimaro nodes**: Attempting to use skeleton tangent (vs endpoint-centroid) made CurvatureRule worse — kimimaro node indices are not path-ordered, making `estimate_tangent` return random directions. Reverted to endpoint-centroid, increased to 120°.
+4. **Low proximity score**: Genuine XPRESS splits have 33–497 nm gaps → `exp(-3 × gap / max_distance)` gives 0.005–0.78; large gaps severely penalize composite_score, dragging it below acceptance thresholds.
+
+**Root Cause of Poor Precision:**
+
+Oracle pairs (composite_score mean 0.425) overlap extensively with non-oracle accepted pairs (mean 0.479). No threshold can cleanly separate them:
+- Non-oracle FPs have **short gaps** (mean 138 nm) → high proximity → high composite
+- Oracle TPs have **long gaps** (mean 306 nm) → low proximity → lower composite
+
+The exponential proximity decay `exp(-3 × d / d_max)` is the primary cause of poor precision: it gives a 10× penalty for the typical oracle split gap (300 nm) vs a typical stitching-artifact gap (50 nm).
+
+**Observations:**
+
+- Pipeline was designed and validated for CREMI-style data (short dendrites, splits at tips) — the endpoint-based graph excels there (F1=0.952 on CREMI)
+- XPRESS white matter is a fundamentally different regime: long (>10 µm) myelinated axons with rare true tips, many interior split errors
+- The 23% candidate coverage (52/225) is the hard ceiling for the current architecture; threshold tuning only improves recall within that ceiling
+- Skeleton oracle from XPRESS skeletons is correct and informative — problem is in candidate generation and scoring, not evaluation
+
+**Proposed Future Work:**
+1. **Interior-node matching**: Build the fragment graph using ALL skeleton nodes (not just TEASAR endpoints) within max_distance. This would expose interior splits as candidates. Cost: O(N_nodes²) queries, mitigated by KD-tree.
+2. **Modified proximity decay**: Replace `exp(-3d/d_max)` with a linear or plateau function that treats all gaps within d_max equally. This removes the gap-length bias against genuine XPRESS splits.
+3. **Boundary-based candidate generation**: Find fragment pairs that share a boundary voxel in the segmentation (O(N_voxels) scan). Guaranteed to capture all split errors; no distance threshold needed.
+4. **Domain-specific scoring**: Re-weight features for white matter (proximity weight → 0, alignment weight → 0.5+) and tune proximity to use a different decay scale for isotropic data.
+
+**Action Items:**
+- [x] Document XPRESS architectural limitations and best-effort tuning
+- [x] Commit XPRESS config, evaluation module, and code fixes (SizeDiscrepancyRule, pipeline.py)
+- [ ] Implement interior-node graph construction as an alternative mode
+- [ ] Explore boundary-based candidate generation for high-recall mode
+- [ ] Tune proximity decay function shape for XPRESS domain
+
+---
+
+## Experiment 9: Parameter Sensitivity
 
 **Date:** _(pending)_
 **Objective:** Evaluate how validation thresholds and scoring weights affect pipeline output (accept/reject/ambiguous ratios).
 
 ---
 
-## Experiment 9: Larger Volume Scalability
+## Experiment 10: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.
