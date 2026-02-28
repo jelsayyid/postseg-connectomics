@@ -42,7 +42,7 @@ class FragmentExtractor:
         Returns:
             List of Fragment objects.
         """
-        fragments = []
+        fragments: List[Fragment] = []
 
         # Gather all nonzero voxel positions and their labels in a single pass
         all_coords = np.argwhere(chunk != 0)  # (N_nonzero, 3) chunk-local
