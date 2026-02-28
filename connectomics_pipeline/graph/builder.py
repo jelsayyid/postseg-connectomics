@@ -117,9 +117,7 @@ class GraphBuilder:
                             endpoint_pair=(ep, other_ep),
                         )
 
-    def _add_skeleton_node_edges(
-        self, graph: FragmentGraph, fragments: List[Fragment]
-    ) -> None:
+    def _add_skeleton_node_edges(self, graph: FragmentGraph, fragments: List[Fragment]) -> None:
         """Add edges using all skeleton nodes, not just TEASAR endpoints.
 
         Indexes every skeleton node from every fragment in a single KD-tree.
@@ -169,9 +167,7 @@ class GraphBuilder:
                 endpoint_pair=(node_a, node_b),
             )
 
-    def _add_pca_bbox_edges(
-        self, graph: FragmentGraph, fragments: List[Fragment]
-    ) -> None:
+    def _add_pca_bbox_edges(self, graph: FragmentGraph, fragments: List[Fragment]) -> None:
         """Add edges for fragments that use PCA endpoints (no TEASAR skeleton)
         by testing bounding-box overlap with every other fragment.
 
@@ -185,9 +181,7 @@ class GraphBuilder:
         The centroid-to-centroid distance is stored as the edge distance;
         the alignment/curvature rules will reject crossing-axon false positives.
         """
-        pca_frags = [
-            f for f in fragments if f.skeleton is None or f.skeleton.num_nodes == 0
-        ]
+        pca_frags = [f for f in fragments if f.skeleton is None or f.skeleton.num_nodes == 0]
         all_frags = fragments  # check PCA vs all, not just PCA vs PCA
 
         added = 0

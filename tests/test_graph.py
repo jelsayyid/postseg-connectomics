@@ -221,9 +221,7 @@ class TestSkeletonNodeIndex:
             fragment_id=99,
             label_id=99,
             voxel_count=50,
-            bounding_box=BoundingBox(
-                min_corner=np.zeros(3), max_corner=np.ones(3) * 100.0
-            ),
+            bounding_box=BoundingBox(min_corner=np.zeros(3), max_corner=np.ones(3) * 100.0),
             centroid=np.array([50.0, 50.0, 50.0]),
             endpoints=[np.array([0.0, 50.0, 50.0]), np.array([100.0, 50.0, 50.0])],
             skeleton=None,
@@ -296,7 +294,9 @@ class TestSkeletonNodeBuilder:
             fragment_id=1,
             label_id=2,
             voxel_count=100000,
-            bounding_box=BoundingBox(np.array([150.0, 150.0, 150.0]), np.array([2000.0, 2000.0, 2000.0])),
+            bounding_box=BoundingBox(
+                np.array([150.0, 150.0, 150.0]), np.array([2000.0, 2000.0, 2000.0])
+            ),
             centroid=np.array([1000.0, 1000.0, 1000.0]),
             endpoints=[np.array([150.0, 150.0, 150.0]), np.array([2000.0, 2000.0, 2000.0])],
             skeleton=None,  # PCA-only

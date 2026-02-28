@@ -56,9 +56,7 @@ class FragmentExtractor:
         sort_idx = np.argsort(all_labels, kind="stable")
         sorted_coords = all_coords[sort_idx]
         sorted_labels = all_labels[sort_idx]
-        _, first_occ, label_counts = np.unique(
-            sorted_labels, return_index=True, return_counts=True
-        )
+        _, first_occ, label_counts = np.unique(sorted_labels, return_index=True, return_counts=True)
         last_occ = first_occ + label_counts
         unique_labels = sorted_labels[first_occ]
 

@@ -94,9 +94,7 @@ class SkeletonNodeIndex:
             self._coords = np.zeros((0, 3))
             self._tree = None
 
-    def query_radius_batch(
-        self, points: np.ndarray, radius: float
-    ) -> List[List[int]]:
+    def query_radius_batch(self, points: np.ndarray, radius: float) -> List[List[int]]:
         """Batch radius query — returns raw index lists into the internal array.
 
         Args:
