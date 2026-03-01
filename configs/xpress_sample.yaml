@@ -44,7 +44,13 @@ fragments:
   skeleton_params:
     invalidation_d0: 10
     dust_threshold: 100
-  max_skeleton_voxels: 50000          # Use PCA endpoint estimation above this; avoids TEASAR slowdown on trunk axons
+  # Raised from 50,000 (2026-03) after Experiment 9 showed 1,148 fragments
+  # (10.2% of 11,208) were PCA-only at the 50K cap, and 98.4% of uncovered
+  # oracle pairs involved at least one PCA-only fragment.  At 33nm isotropic,
+  # 500K voxels ≈ cylinder 23µm long × 1.3µm diam — well within TEASAR's
+  # practical range.  See "Skeleton benchmark" log lines for projected runtime.
+  # Set to 0 to disable PCA fallback entirely (pure TEASAR for all fragments).
+  max_skeleton_voxels: 500000
 
 graph:
   construction_method: "skeleton_node"  # All skeleton nodes catch interior axon splits

@@ -94,6 +94,8 @@ class Pipeline:
         self._extract_fragments(reader, resolution)
 
         # 3. Skeletonize and compute metadata
+        if self.config.fragments.extract_skeletons:
+            self._benchmark_skeletonization(resolution)
         self._compute_geometry(resolution)
 
         # 4. Build graph
@@ -171,6 +173,156 @@ class Pipeline:
         self.store.add_many(all_fragments)
         logger.info("Extracted %d fragments", len(self.store))
 
+    def _benchmark_skeletonization(self, resolution, n_sample: int = 20) -> None:
+        """Time TEASAR on a sample of large fragments before the main skeletonization run.
+
+        Samples up to ``n_sample`` fragments whose voxel counts exceed
+        ``max_skeleton_voxels`` (i.e. those that would be newly skeletonised
+        if the threshold were raised).  Results are logged at INFO so the
+        projected additional runtime is visible before committing to a threshold.
+
+        This method does NOT mutate any fragment state.  It is intentionally
+        called once at pipeline startup; the timing summary can be used to
+        decide whether to raise ``max_skeleton_voxels`` further.
+
+        Threshold guidance (written to the log):
+          - projected_additional_time < 120 s  → raising the threshold is safe
+          - 120–600 s                           → acceptable; monitor SLOW warnings
+          - > 600 s                             → consider a smaller threshold or
+                                                  the PCA bbox fallback instead
+        """
+        if self._volume is None:
+            return
+
+        res = np.array(resolution, dtype=float)
+        vol_shape = np.array(self._volume.shape)
+        max_skel_vox = self.config.fragments.max_skeleton_voxels
+
+        # max_skeleton_voxels=0 means "no cap — always use TEASAR".
+        # Nothing to benchmark in that case.
+        if max_skel_vox == 0:
+            logger.info(
+                "Skeleton benchmark: max_skeleton_voxels=0 (no cap); "
+                "all fragments will use TEASAR — skipping benchmark"
+            )
+            return
+
+        # First pass: collect lightweight metadata only (voxel_count + fragment ref).
+        # Do NOT store masks here — a single 200×200×200 mask is ~32 MB, and
+        # there can be 1000+ PCA-only fragments.  Storing all masks simultaneously
+        # would OOM on typical workstations.  Masks are recomputed on demand
+        # in the benchmark loop below.
+        pca_meta: List[tuple] = []  # (voxel_count, fragment)
+        for frag in self.store.all_fragments():
+            min_vox = np.round(frag.bounding_box.min_corner / res).astype(int)
+            max_vox = np.round(frag.bounding_box.max_corner / res).astype(int)
+            min_vox = np.clip(min_vox, 0, vol_shape - 1)
+            max_vox = np.clip(max_vox, min_vox + 1, vol_shape)
+            slices = tuple(slice(int(mn), int(mx)) for mn, mx in zip(min_vox, max_vox))
+            vc = int((self._volume[slices] == frag.label_id).sum())
+            if vc > max_skel_vox:
+                pca_meta.append((vc, frag))
+
+        if not pca_meta:
+            logger.info(
+                "Skeleton benchmark: no fragments exceed max_skeleton_voxels=%d — "
+                "all fragments will use TEASAR (no PCA fallback triggered)",
+                max_skel_vox,
+            )
+            return
+
+        pca_meta.sort(key=lambda x: x[0])
+        n_above = len(pca_meta)
+        mean_vc_above = sum(vc for vc, _ in pca_meta) / n_above
+
+        # Sample uniformly by voxel count so the benchmark covers the distribution.
+        step = max(1, n_above // n_sample)
+        sample_meta = pca_meta[::step][:n_sample]
+
+        logger.info(
+            "Skeleton benchmark: %d fragments currently use PCA fallback "
+            "(voxel_count > %d); timing TEASAR on %d samples "
+            "(mean_size=%.0f vox, max_size=%d vox)",
+            n_above,
+            max_skel_vox,
+            len(sample_meta),
+            mean_vc_above,
+            pca_meta[-1][0],
+        )
+
+        skeletonizer = Skeletonizer(
+            method=self.config.fragments.skeleton_method,
+            resolution=resolution,
+            params=self.config.fragments.skeleton_params,
+        )
+
+        bench_times: List[tuple] = []  # (voxel_count, wall_seconds)
+        for vc, frag in sample_meta:
+            # Recompute mask on demand — one at a time to keep memory flat.
+            min_vox = np.round(frag.bounding_box.min_corner / res).astype(int)
+            max_vox = np.round(frag.bounding_box.max_corner / res).astype(int)
+            min_vox = np.clip(min_vox, 0, vol_shape - 1)
+            max_vox = np.clip(max_vox, min_vox + 1, vol_shape)
+            slices = tuple(slice(int(mn), int(mx)) for mn, mx in zip(min_vox, max_vox))
+            mask = (self._volume[slices] == frag.label_id).astype(np.uint32)
+
+            t0 = time.perf_counter()
+            try:
+                skeletonizer.skeletonize(mask, label_id=1)
+            except Exception as exc:
+                logger.debug(
+                    "Benchmark TEASAR failed for fragment %s (%d vox): %s",
+                    frag.label_id,
+                    vc,
+                    exc,
+                )
+                continue
+            dt = time.perf_counter() - t0
+            bench_times.append((vc, dt))
+            logger.debug("  benchmark sample: label=%s  %d vox  %.3fs", frag.label_id, vc, dt)
+
+        if not bench_times:
+            logger.warning(
+                "Skeleton benchmark: all %d sample fragments failed TEASAR — "
+                "check kimimaro installation",
+                len(sample_meta),
+            )
+            return
+
+        mean_dt = sum(dt for _, dt in bench_times) / len(bench_times)
+        max_dt = max(dt for _, dt in bench_times)
+        # Seconds-per-voxel gives a linear scaling estimate across fragment sizes.
+        mean_s_per_vox = sum(dt / vc for vc, dt in bench_times) / len(bench_times)
+        projected_s = mean_s_per_vox * mean_vc_above * n_above
+
+        logger.info(
+            "Skeleton benchmark results: n_sampled=%d  mean=%.2fs  max=%.2fs  " "mean_s/vox=%.2e",
+            len(bench_times),
+            mean_dt,
+            max_dt,
+            mean_s_per_vox,
+        )
+        logger.info(
+            "Skeleton benchmark projection: if max_skeleton_voxels were raised "
+            "to cover all %d PCA fragments, estimated additional TEASAR time "
+            "≈ %.0fs (%.1f min)  [linear extrapolation from %d samples]",
+            n_above,
+            projected_s,
+            projected_s / 60.0,
+            len(bench_times),
+        )
+
+        if projected_s < 120:
+            advice = "safe to raise — projected time < 2 min"
+        elif projected_s < 600:
+            advice = "acceptable — monitor 'SLOW TEASAR' warnings in log"
+        else:
+            advice = (
+                "consider a smaller threshold or the PCA bbox fallback "
+                "(construction_method: skeleton_node keeps _add_pca_bbox_edges)"
+            )
+        logger.info("Skeleton benchmark recommendation: %s", advice)
+
     def _compute_geometry(self, resolution) -> None:
         """Compute skeletons, meshes, and endpoints for all fragments."""
         if self.config.fragments.extract_skeletons and self._volume is not None:
@@ -183,6 +335,12 @@ class Pipeline:
             res = np.array(resolution, dtype=float)
             vol_shape = np.array(self._volume.shape)
             skeletonized = failed = 0
+            # Wall-clock accumulators for the post-run timing summary.
+            skel_times: List[float] = []
+            pca_times: List[float] = []
+            # Fragments taking longer than this emit a WARNING so slow outliers
+            # are immediately visible without parsing debug logs.
+            _SLOW_FRAG_THRESHOLD_S = 5.0
 
             for frag in self.store.all_fragments():
                 # Convert bounding box (nm) to voxel indices
@@ -201,17 +359,50 @@ class Pipeline:
                     continue
 
                 max_skel_vox = self.config.fragments.max_skeleton_voxels
-                if voxel_count > max_skel_vox:
-                    # For very large fragments, PCA gives axis-aligned endpoints
-                    # much faster than TEASAR and captures the two axon tips.
+                # max_skeleton_voxels=0 means "no cap — always use TEASAR".
+                use_pca = max_skel_vox > 0 and voxel_count > max_skel_vox
+                if use_pca:
+                    # Fragment exceeds the TEASAR voxel cap: use PCA to find the
+                    # two axis-aligned extreme points as endpoint proxies.  Fast
+                    # but only captures axon tips, not interior split boundaries.
+                    # Raise max_skeleton_voxels (or set to 0) to route these
+                    # through TEASAR; see benchmark log lines for timing guidance.
+                    t0 = time.perf_counter()
                     frag.endpoints = _pca_endpoints(mask, min_vox, res)
+                    pca_dt = time.perf_counter() - t0
+                    pca_times.append(pca_dt)
+                    logger.debug(
+                        "PCA fallback: label=%s  %d vox  %.3fs",
+                        frag.label_id,
+                        voxel_count,
+                        pca_dt,
+                    )
                     skeletonized += 1
                     continue
 
+                t0 = time.perf_counter()
                 try:
                     # Use label_id=1 with binary mask to avoid uint32 overflow
                     # on large original label IDs (XPRESS labels can be >100M)
                     skel = skeletonizer.skeletonize(mask, label_id=1)
+                    skel_dt = time.perf_counter() - t0
+                    skel_times.append(skel_dt)
+                    if skel_dt > _SLOW_FRAG_THRESHOLD_S:
+                        logger.warning(
+                            "SLOW TEASAR: label=%s  %d vox  %.1fs  "
+                            "(consider raising max_skeleton_voxels above %d)",
+                            frag.label_id,
+                            voxel_count,
+                            skel_dt,
+                            voxel_count,
+                        )
+                    else:
+                        logger.debug(
+                            "TEASAR: label=%s  %d vox  %.3fs",
+                            frag.label_id,
+                            voxel_count,
+                            skel_dt,
+                        )
                     if skel is not None and skel.num_nodes > 0:
                         # kimimaro outputs local physical coords (anisotropy * voxel_idx)
                         # Translate to global physical space by adding bbox min corner
@@ -221,6 +412,27 @@ class Pipeline:
                 except Exception:
                     failed += 1
 
+            # Per-path timing summary — always logged at INFO if a path was used.
+            if skel_times:
+                logger.info(
+                    "Skeletonization timing (TEASAR): n=%d  total=%.1fs  "
+                    "mean=%.2fs  p50=%.2fs  p95=%.2fs  max=%.2fs",
+                    len(skel_times),
+                    sum(skel_times),
+                    sum(skel_times) / len(skel_times),
+                    float(np.percentile(skel_times, 50)),
+                    float(np.percentile(skel_times, 95)),
+                    max(skel_times),
+                )
+            if pca_times:
+                logger.info(
+                    "Skeletonization timing (PCA fallback): n=%d  total=%.1fs  "
+                    "mean=%.3fs  max=%.3fs",
+                    len(pca_times),
+                    sum(pca_times),
+                    sum(pca_times) / len(pca_times),
+                    max(pca_times),
+                )
             logger.info(
                 "Skeletonization: %d/%d fragments skeletonized (%d failed/skipped)",
                 skeletonized,

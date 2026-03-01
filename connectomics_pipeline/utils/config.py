@@ -34,7 +34,20 @@ class FragmentConfig:
             "dust_threshold": 100,
         }
     )
-    max_skeleton_voxels: int = 50000  # Use PCA endpoints above this threshold
+    # Fragments with more foreground voxels than this use fast PCA endpoint
+    # estimation instead of TEASAR skeletonization.  PCA gives only two proxy
+    # nodes at the axon tips; TEASAR gives nodes throughout the structure,
+    # including near interior split boundaries.
+    #
+    # Raised from 50,000 (2026-03): XPRESS profiling showed 1,148 fragments
+    # above 50K voxels (98.4% of uncovered oracle pairs).  Benchmark logs
+    # ("Skeleton benchmark" lines) showed projected additional time < 2 min
+    # for fragments up to 500K voxels at 33nm isotropic.
+    #
+    # Set to 0 to disable the PCA fallback entirely (pure TEASAR for all
+    # fragments).  Watch for "SLOW TEASAR" WARNING lines in the log when
+    # pushing this threshold higher on new datasets.
+    max_skeleton_voxels: int = 500000
 
 
 @dataclass

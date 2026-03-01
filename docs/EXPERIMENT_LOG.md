@@ -806,7 +806,95 @@ Precision: 0.0155   Recall: 0.605   F1: 0.030
 
 ---
 
-## Experiment 10: Larger Volume Scalability
+## Experiment 10: Raise max_skeleton_voxels 50K → 500K on Full XPRESS Volume
+
+**Date:** 2026-03-01
+**Objective:** Confirm that raising `max_skeleton_voxels` from 50,000 to 500,000 improves recall by replacing PCA fallback with TEASAR for 1,085 additional fragments, while measuring the runtime cost via the new benchmark logging infrastructure.
+
+### Setup
+
+- **Config:** `configs/xpress_sample.yaml` (same as Run 9C except `max_skeleton_voxels: 500000`)
+- **Volume:** full 699³ XPRESS training volume at 33 nm isotropic
+- **Validation thresholds:** same as Run 9C (accept=0.30, max_branches=5000, max_distance=5000, CompositeScoreRule.reject=0.15)
+- **New code:** `_benchmark_skeletonization()` pre-run sampler + per-fragment TEASAR/PCA timing
+
+### Benchmark Log
+
+```
+Skeleton benchmark: 63 fragments currently use PCA fallback (voxel_count > 500000);
+  timing TEASAR on 20 samples (mean_size=624302 vox, max_size=1226326 vox)
+Skeleton benchmark results: n_sampled=20  mean=8.20s  max=24.10s  mean_s/vox=1.38e-05
+Skeleton benchmark projection: if max_skeleton_voxels were raised to cover all 63 PCA
+  fragments, estimated additional TEASAR time ≈ 544s (9.1 min)
+Skeleton benchmark recommendation: acceptable — monitor 'SLOW TEASAR' warnings in log
+```
+
+Number of SLOW TEASAR warnings (>5 s): **52** fragments in the 250K–500K voxel range.
+
+### Timing
+
+| Stage | Time |
+|-------|------|
+| Fragment extraction | ~2 min |
+| Benchmark (20 samples) | ~3 min |
+| Skeletonization (TEASAR n=11145, PCA n=63) | ~22 min |
+| Graph + candidates + validation + export | ~3 min |
+| **Total** | **29.5 min (1769 s)** |
+
+Skeletonization timing summary:
+```
+TEASAR: n=11145  total=1222.1s  mean=0.11s  p50=0.01s  p95=0.25s  max=20.57s
+PCA fallback: n=63  total=12.5s  mean=0.198s  max=0.463s
+```
+
+### Results
+
+```
+Graph:       11,208 nodes, 143,767 edges (skeleton_node)
+Candidates:  84,052
+Accepted:    28,026   Rejected: 56,005   Ambiguous: 21
+
+Oracle pairs: 1,499
+Coverage: 931/1499 = 62.1%   (was 79.8% in Run 9C)
+TP=826  FP=27200  TN=55860  FN=145  AMB+=0  AMB-=21
+Precision: 0.029   Recall: 0.851   F1: 0.057
+```
+
+### vs Run 9C Comparison
+
+| Metric | Run 9C (50K) | Run 10 (500K) | Δ |
+|--------|-------------|---------------|---|
+| PCA-only fragments | 1,148 | 63 | −1,085 |
+| Graph edges | 398,423 | 143,767 | −255K |
+| Coverage | 79.8% (1196/1499) | 62.1% (931/1499) | −17.7 pp |
+| TP | 745 | 826 | +81 |
+| **Recall** | **0.605** | **0.851** | **+0.246** |
+| Precision | 0.016 | 0.029 | +0.013 |
+| F1 | 0.030 | 0.057 | +0.027 |
+| Total runtime | ~10 min | **~29.5 min** | +19.5 min |
+
+### Analysis
+
+**Recall improvement (0.605 → 0.851):** TEASAR now skeletonizes 1,085 more fragments. For oracle pairs involving those fragments, the split boundary is within max_distance_nm=500 of a TEASAR skeleton node, giving gap_distance ≈ 33–99 nm instead of 1,000–3,000 nm. Proximity score recovers from ~0.1–0.2 to ~0.85–1.0, lifting composite scores above the accept threshold.
+
+**Coverage drop (79.8% → 62.1%):** In Run 9C, the PCA bbox pass added edges for 1,148 large fragments by bounding-box overlap. With only 63 PCA fragments remaining, the bbox pass contributes far fewer edges. Some oracle pairs that were bbox-adjacent in Run 9C are now outside max_distance_nm=500 from each other's TEASAR skeleton nodes — likely because `max_distance_nm=500` is at the low end for pairs near interior splits. A follow-up should test raising `max_distance_nm` to 750–1000 nm or reintroducing a targeted bbox pass for the 63 remaining PCA fragments.
+
+**Acceptance rate among covered oracle pairs:** 88.7% (826/931) vs 62.3% in Run 9C — confirming that proper TEASAR skeleton nodes enable accurate proximity scoring.
+
+**Precision (0.016 → 0.029):** Improved because oracle pairs score higher (fewer FPs need to be accepted alongside them to pass threshold). Still limited by the loose validation parameters required to permit long-gap and high-degree connections.
+
+### Action Items
+
+- [x] Raise `max_skeleton_voxels` from 50K to 500K
+- [x] Add `_benchmark_skeletonization()` pre-run sampler with SLOW TEASAR warning infrastructure
+- [x] Measure recall improvement (+0.246)
+- [ ] Raise `max_distance_nm` to 750–1000 to recover coverage for TEASAR pairs beyond 500 nm
+- [ ] Add targeted bbox pass for the 63 remaining PCA-only fragments (>500K voxels)
+- [ ] Investigate precision improvement: alignment/curvature filtering on accepted pairs
+
+---
+
+## Experiment 11: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.
