@@ -46,6 +46,7 @@ class GraphBuilder:
             self._add_endpoint_edges(graph, fragments)
         elif method == "skeleton_node":
             self._add_skeleton_node_edges(graph, fragments)
+            self._add_long_range_endpoint_edges(graph, fragments)
             self._add_pca_bbox_edges(graph, fragments)
         else:
             raise ValueError(f"Unknown graph construction method: {method}")
@@ -199,3 +200,45 @@ class GraphBuilder:
 
         if added:
             logger.debug("PCA bbox pass added %d edges", added)
+
+    def _add_long_range_endpoint_edges(
+        self, graph: FragmentGraph, fragments: List[Fragment]
+    ) -> None:
+        """Supplemental long-range pass querying only terminal endpoint nodes.
+
+        Used after _add_skeleton_node_edges to catch oracle pairs whose fragments
+        are not touching in the volume (genuine segmentation gap).  Only adds edges
+        that do not already exist in the graph.
+
+        Active only when config.max_endpoint_search_nm > config.max_distance_nm.
+        """
+        max_ep_dist = self.config.max_endpoint_search_nm
+        if max_ep_dist <= self.config.max_distance_nm:
+            return
+
+        endpoint_index = EndpointIndex(fragments)
+        added = 0
+
+        for f in fragments:
+            eps = f.endpoints if f.endpoints else [f.centroid]
+            for ep in eps:
+                matches = endpoint_index.query_radius(ep, max_ep_dist)
+                for other_frag_id, other_ep, dist in matches:
+                    if other_frag_id == f.fragment_id:
+                        continue
+                    if graph.has_edge(f.fragment_id, other_frag_id):
+                        continue
+                    graph.add_edge(
+                        f.fragment_id,
+                        other_frag_id,
+                        distance=dist,
+                        endpoint_pair=(ep, other_ep),
+                    )
+                    added += 1
+
+        if added:
+            logger.info(
+                "Long-range endpoint pass: added %d edges (radius=%.0f nm)",
+                added,
+                max_ep_dist,
+            )

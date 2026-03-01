@@ -54,6 +54,11 @@ class FragmentConfig:
 class GraphConfig:
     construction_method: str = "proximity"
     max_distance_nm: float = 2000.0
+    # Supplemental long-range endpoint search radius for the skeleton_node method.
+    # When > max_distance_nm, adds a second pass that queries only terminal endpoint
+    # nodes at this larger radius.  Catches oracle pairs with genuine segmentation gaps
+    # (fragments not touching in the volume).  Set to 0 to disable (default).
+    max_endpoint_search_nm: float = 0.0
 
 
 @dataclass

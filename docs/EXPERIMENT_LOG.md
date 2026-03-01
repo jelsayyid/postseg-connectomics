@@ -894,7 +894,108 @@ Precision: 0.029   Recall: 0.851   F1: 0.057
 
 ---
 
-## Experiment 11: Larger Volume Scalability
+## Experiment 11: Long-Range Endpoint Search Pass (max_endpoint_search_nm=2000)
+
+**Date:** 2026-03-01
+**Objective:** Recover coverage lost in Run 10 by adding a supplemental long-range endpoint-only graph construction pass that queries TEASAR degree-1 nodes at a larger radius (2000 nm) after the skeleton_node pass (500 nm). Targets RC2 pairs (genuine segmentation gaps 500–2000 nm) and RC3 PCA pairs (endpoint distances 1000–2000 nm).
+
+### Background: Run 10 Coverage Diagnosis
+
+Run 10 raised `max_skeleton_voxels` 50K→500K, improving Recall 0.605→0.851 but dropping
+coverage 79.8%→62.1% (568 missing oracle pairs). Root-cause breakdown of those 568 pairs:
+
+| Root Cause | Count | % | Description |
+|---|---|---|---|
+| RC2: no graph edge | 358 | 63% | Genuine segmentation gap; nearest skeleton nodes > 500 nm apart |
+| RC3: edge filtered | 201 | 35% | Edge exists but validation rejects it (42 unavoidable; 159 PCA bbox with 1000–3000 nm endpoint distance) |
+
+### New Feature: `max_endpoint_search_nm`
+
+Added `GraphConfig.max_endpoint_search_nm` (default 0 = disabled). When
+`> max_distance_nm`, inserts a second pass in the `skeleton_node` pipeline that:
+- Builds an `EndpointIndex` over all TEASAR degree-1 (terminal) endpoints
+- Queries each endpoint at the larger radius
+- Adds edges not already in the graph, storing the actual endpoint pair for accurate gap scoring
+
+### Note: OOM at 5000 nm
+
+Initial attempt used `max_endpoint_search_nm=5000` as planned. This generated **2,878,682**
+long-range edges → 2,583,948 candidates → process OOM-killed during graphml export
+(3M-edge graph × networkx XML overhead + 2.58M-row connections.csv). Reduced to 2000 nm
+which produces a manageable 324K long-range edges.
+
+### Setup
+
+- **Config:** `configs/xpress_sample.yaml` with `max_endpoint_search_nm: 2000`
+- **Volume:** full 699³ XPRESS training volume at 33 nm isotropic
+- **Validation thresholds:** same as Run 10 (accept=0.30, max_branches=5000, max_distance=5000, CompositeScoreRule.reject=0.15)
+- **Oracle offset:** `(0, 0, 0)` — the 699³ `xpress_full.h5` starts at the origin of the training volume
+
+### Results
+
+```
+Long-range endpoint pass: added 324,678 edges (radius=2000 nm)
+Graph:       11,208 nodes, 466,024 edges (skeleton_node)
+Candidates:  362,225
+Accepted:    186,353   Rejected: 175,846   Ambiguous: 26
+
+Oracle pairs: 1,499
+Coverage: 1,223/1,499 = 81.6%   (was 62.1% in Run 10)
+TP=976  FP=185,377  TN=175,599  FN=247  AMB+=0  AMB-=26
+Precision: 0.005   Recall: 0.798   F1: 0.010
+
+Pipeline runtime: 1910 s (31.8 min)
+```
+
+### vs Run 10 Comparison
+
+| Metric | Run 10 (500K, no long-range) | Run 11 (500K + 2000nm long-range) | Δ |
+|--------|------------------------------|-----------------------------------|---|
+| Long-range edges | — | 324,678 | +324K |
+| Total graph edges | 143,767 | 466,024 | +322K |
+| Total candidates | 84,052 | 362,225 | +278K |
+| **Coverage** | **62.1% (931/1499)** | **81.6% (1223/1499)** | **+19.5 pp** |
+| TP | 826 | 976 | +150 |
+| FN | 145 | 247 | +102 |
+| **Recall** | **0.851** | **0.798** | **−0.053** |
+| Precision | 0.029 | 0.005 | −0.024 |
+| Runtime | ~29.5 min | ~31.8 min | +2.3 min |
+
+### Analysis
+
+**Coverage recovered and surpassed the 79.8% Run 9C target (+1.8 pp).**
+The long-range pass adds 1223−971 = 252 previously-invisible oracle pairs as candidates.
+
+**Recall dropped (0.851→0.798) despite more oracle pairs being visible.** Root cause:
+
+- New long-range oracle pairs have genuine gaps of 500–2000 nm
+- `max_endpoint_distance_nm=400` → `proximity_score=0` for all these pairs
+- Default composite for a long-gap pair: `0.35×0 + 0.30×0.5 + 0.25×0.5 + 0.10×0.5 = 0.325`
+- `CurvatureRule` (120°) and size/composite thresholds reject a fraction (~40%) of the new oracle pairs
+- 102 new oracle pairs became FNs instead of TPs; 150 new oracle pairs became TPs
+
+**Why FP count exploded (27K→185K):** The 324K new long-range edges include many
+cross-axon pairs (different axons within 2000 nm endpoint distance) which also have
+proximity=0 and similar composite scores. The validation rules do not yet have enough
+discriminative power to separate same-axon from different-axon long-gap pairs.
+
+### Observations
+
+1. **Long-range pass is working**: 252 new oracle pairs reached candidate stage. The TEASAR endpoints at genuine split boundaries are within 2000 nm of each other's endpoints.
+2. **Validation tuning needed for long-gap regime**: The CurvatureRule, CompositeScore threshold, and accept_threshold are calibrated for short-gap (< 400 nm) pairs. For long-gap pairs (proximity=0), lower thresholds and possibly weighted alignment are needed.
+3. **Memory scaling**: At 5000 nm radius, long-range edges are ~18× more than at 2000 nm (2.88M vs 324K). The quadratic candidate count × validation cost hits OOM. The 2000 nm sweet spot balances coverage and memory.
+4. **Recall vs Coverage trade-off**: Run 10 (no long-range) had better recall (0.851) but lower coverage ceiling (62.1%). Run 11 has higher coverage (81.6%) but lower recall (0.798) due to strict validation on long-gap pairs.
+
+### Action Items
+
+- [ ] Tune accept_threshold and scoring weights specifically for long-range candidates (proximity=0 regime): lower accept_threshold to 0.25 or reweight alignment/continuity
+- [ ] Investigate CurvatureRule failures on new long-range oracle pairs (102 FNs)
+- [ ] Try `max_endpoint_search_nm: 3000` after tuning validation to avoid FN regression
+- [ ] Add per-fragment long-range edge cap to prevent memory explosion at larger radii
+
+---
+
+## Experiment 12: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.

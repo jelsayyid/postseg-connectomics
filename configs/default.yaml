@@ -33,6 +33,8 @@ fragments:
 graph:
   construction_method: "proximity"  # contact | proximity | endpoint
   max_distance_nm: 2000             # Max distance to connect fragments
+  max_endpoint_search_nm: 0         # 0 = disabled; set > max_distance_nm to enable long-range
+                                    # endpoint search (skeleton_node method only)
 
 candidates:
   max_endpoint_distance_nm: 1500
