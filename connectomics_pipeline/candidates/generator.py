@@ -76,7 +76,15 @@ class CandidateGenerator:
         radius_b = _estimate_radius(frag_b)
         size = compute_size_score(radius_a, radius_b)
 
-        composite = compute_composite_score(prox, align, cont, size, self.config.weights)
+        # Distance-conditioned weight selection: for long-range pairs (proximity ≈ 0),
+        # drop the proximity weight and redistribute to alignment/continuity.
+        threshold = self.config.long_range_threshold_nm
+        weights = (
+            self.config.long_range_weights
+            if threshold > 0 and distance > threshold
+            else self.config.weights
+        )
+        composite = compute_composite_score(prox, align, cont, size, weights)
 
         # Filter by thresholds
         if composite < self.config.min_composite_score:

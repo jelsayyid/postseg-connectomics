@@ -1130,7 +1130,79 @@ is already low), swelling FPs.
 
 ---
 
-## Experiment 14: Larger Volume Scalability
+## Experiment 14: Distance-Conditioned Scoring for Long-Range Pairs
+
+**Date:** 2026-03-02
+**Objective:** Address the architectural bottleneck identified in Experiments 12–13: the standard
+weight vector (proximity=0.35) structurally penalises pairs with gaps > 1000 nm where proximity ≈ 0,
+suppressing composite scores below the accept threshold even when alignment and continuity are good.
+Implement a distance-conditioned scoring branch that switches to a proximity-free weight vector for
+pairs above a distance threshold.
+
+### Implementation
+
+New fields in `CandidateConfig`:
+- `long_range_threshold_nm` (default 0 = disabled): when `distance > threshold`, use `long_range_weights`
+- `long_range_weights` (default: proximity=0, alignment=0.45, continuity=0.40, size=0.15)
+
+Change in `generator.py:_score_candidate`: one-line weight selection before `compute_composite_score`.
+No changes to `scoring.py`, `validation/`, or graph construction — purely a scoring branch.
+
+### Setup
+
+- Config: all Exp 12 settings + `long_range_threshold_nm: 1000`, `long_range_weights` as above
+- Baseline (Exp 12): Coverage=81.7% (1225/1499), Recall=0.898
+
+### Weight Design
+
+Standard weights: proximity=0.35, alignment=0.30, continuity=0.25, size=0.10
+Long-range weights: proximity=0.00, alignment=0.45, continuity=0.40, size=0.15
+
+With long-range weights, a pair with align=0.5, cont=0.5, size=0.5 scores 0.50 (vs 0.325 with
+standard weights + proximity=0). Pairs that previously fell below min_composite_score=0.20 due to
+proximity=0 now survive pre-validation filtering.
+
+### Results
+
+Runtime: 35.9 min (2152 s). Same graph (466K edges) as Exp 12.
+
+| Metric      | Exp 12 (baseline)  | Exp 14               | Delta  |
+|-------------|---------------------|----------------------|--------|
+| Coverage    | 81.7% (1225/1499)   | **83.5% (1252/1499)**| **+1.8%** |
+| Recall      | 0.898               | 0.889                | −0.009 |
+| Precision   | 0.005               | 0.005                | 0      |
+| TP          | 1100                | 1113                 | +13    |
+| FN          | 125                 | 139                  | +14    |
+| Candidates  | 362,718             | 369,423              | +6,705 |
+| Accepted    | 234,007             | 235,785              | +1,778 |
+| Ambiguous   | 26                  | 11                   | −15    |
+
+**Feature is working.** The +27 newly covered oracle pairs (1225→1252) were previously filtered out
+by `min_composite_score=0.20` because proximity=0 suppressed their standard composite. With
+long-range weights, 13 of those 27 are now accepted (TP), and 14 are rejected by validation rules.
+Acceptance rate for new pairs: 13/27 = **48%**, versus 11% in Experiment 13 (no weight switching).
+
+**Small recall regression (−0.009):** The 27 new pairs have 48% acceptance rate, below the 90%
+rate of existing pairs. Adding lower-acceptance pairs to the pool pulls the recall ratio down
+slightly: 1113/1252 = 0.889 vs 1100/1225 = 0.898. This is a weight calibration issue, not a
+structural failure — the long-range weights need further tuning to push more of the 14 FNs to TP.
+
+### Analysis
+
+The existing 1225 oracle pairs from Exp 12 are unchanged (TP=1100, FN=125 exactly). All change
+comes from the 27 newly promoted candidates. The 14 new FNs are being hard-rejected by
+CurvatureRule or scoring below accept_threshold=0.25 even with the new weights — these pairs likely
+have genuinely poor TEASAR endpoint directions relative to the gap.
+
+### Next Steps
+
+- [ ] Tune long-range weights: try higher alignment weight (e.g., 0.55/0.35/0.10) to push borderline pairs above accept_threshold
+- [ ] Profile the 14 new FNs: curvature hard-reject vs. composite < 0.25
+- [ ] Consider per-pair `long_range_threshold_nm` based on actual proximity value rather than distance
+
+---
+
+## Experiment 15: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.

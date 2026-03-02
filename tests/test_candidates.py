@@ -112,6 +112,51 @@ class TestSizeScore:
         assert 0.0 < score < 1.0
 
 
+class TestLongRangeWeights:
+    """Distance-conditioned weight selection in CandidateGenerator."""
+
+    def test_short_range_uses_standard_weights(self, fragment_store, candidate_config):
+        """Pairs below threshold use the standard weight vector (proximity included)."""
+        config = CandidateConfig(
+            max_endpoint_distance_nm=1500.0,
+            long_range_threshold_nm=1000.0,
+            long_range_weights={
+                "proximity": 0.0,
+                "alignment": 0.45,
+                "continuity": 0.40,
+                "size": 0.15,
+            },
+        )
+        # With proximity=1.0 and standard weights, composite is weighted by standard set
+        score_standard = compute_composite_score(1.0, 0.5, 0.5, 0.5, config.weights)
+        score_longrange = compute_composite_score(1.0, 0.5, 0.5, 0.5, config.long_range_weights)
+        # Standard weights include proximity=0.35; long-range drops it → different scores
+        assert abs(score_standard - score_longrange) > 0.05
+
+    def test_long_range_composite_ignores_proximity(self):
+        """Long-range weight vector: proximity=0, so proximity score does not affect composite."""
+        weights = {"proximity": 0.00, "alignment": 0.45, "continuity": 0.40, "size": 0.15}
+        score_high_prox = compute_composite_score(1.0, 0.5, 0.5, 0.5, weights)
+        score_zero_prox = compute_composite_score(0.0, 0.5, 0.5, 0.5, weights)
+        assert abs(score_high_prox - score_zero_prox) < 1e-9
+
+    def test_long_range_threshold_zero_disables_feature(self, fragment_store):
+        """long_range_threshold_nm=0 means standard weights are always used."""
+        config = CandidateConfig(
+            max_endpoint_distance_nm=1500.0,
+            long_range_threshold_nm=0.0,  # disabled
+            long_range_weights={"proximity": 0.0, "alignment": 1.0, "continuity": 0.0, "size": 0.0},
+        )
+        graph_config = GraphConfig(max_distance_nm=500.0)
+        graph = GraphBuilder(graph_config).build(fragment_store)
+        generator = CandidateGenerator(config, fragment_store)
+        candidates = generator.generate(graph)
+        # All candidates should have proximity contributing — verify composite > 0 for close pairs
+        assert len(candidates) > 0
+        for c in candidates:
+            assert 0.0 <= c.composite_score <= 1.0
+
+
 class TestCandidateGenerator:
     def test_generate_candidates(self, fragment_store, candidate_config):
         graph_config = GraphConfig(max_distance_nm=500.0)

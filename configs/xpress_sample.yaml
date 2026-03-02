@@ -66,6 +66,15 @@ candidates:
     alignment: 0.30                  # Alignment is reliable here: axons have clear long-axis direction
     continuity: 0.25
     size: 0.10
+  # For pairs with gaps > 1000 nm, proximity ≈ 0 regardless of max_endpoint_distance_nm.
+  # Drop the proximity weight entirely and redistribute to alignment/continuity so
+  # long-range pairs are judged on direction quality rather than penalised for gap size.
+  long_range_threshold_nm: 1000
+  long_range_weights:
+    proximity: 0.00
+    alignment: 0.45
+    continuity: 0.40
+    size: 0.15
 
 validation:
   accept_threshold: 0.25             # was 0.30; accepts composite 0.25–0.30 pairs (long-range with proximity≈0)

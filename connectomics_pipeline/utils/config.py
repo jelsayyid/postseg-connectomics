@@ -74,6 +74,19 @@ class CandidateConfig:
             "size": 0.10,
         }
     )
+    # Distance-conditioned scoring: when endpoint gap > this threshold, use
+    # long_range_weights instead of weights.  Intended for pairs where proximity
+    # is structurally near-zero so the standard weight vector penalises them
+    # unfairly.  Set to 0 to disable (default).
+    long_range_threshold_nm: float = 0.0
+    long_range_weights: Dict[str, float] = field(
+        default_factory=lambda: {
+            "proximity": 0.00,
+            "alignment": 0.45,
+            "continuity": 0.40,
+            "size": 0.15,
+        }
+    )
 
 
 @dataclass
