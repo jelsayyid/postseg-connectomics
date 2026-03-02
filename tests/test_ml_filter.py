@@ -94,6 +94,7 @@ def _make_filter(model: object, threshold: float = 0.5) -> MLFilter:
         "features": [
             "gap_distance", "proximity_score", "alignment_score",
             "continuity_score", "size_score", "composite_score",
+            "degree_a", "degree_b",
         ],
     }
     with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
@@ -111,13 +112,13 @@ def _make_filter(model: object, threshold: float = 0.5) -> MLFilter:
 class TestExtractFeatures:
     def test_empty_returns_empty_array(self):
         result = _extract_features([])
-        assert result.shape == (0, 6)
+        assert result.shape == (0, 8)
 
     def test_single_candidate_shape(self):
         c = _make_cand(1, gap=400.0, proximity=0.3, alignment=0.7,
                        continuity=0.6, size=0.4, composite=0.5)
         X = _extract_features([c])
-        assert X.shape == (1, 6)
+        assert X.shape == (1, 8)
 
     def test_feature_values_correct(self):
         c = _make_cand(1, gap=123.0, proximity=0.1, alignment=0.2,
@@ -134,7 +135,7 @@ class TestExtractFeatures:
     def test_multiple_candidates(self):
         cands = [_make_cand(i, gap=float(i * 100)) for i in range(5)]
         X = _extract_features(cands)
-        assert X.shape == (5, 6)
+        assert X.shape == (5, 8)
         # gap_distance should be 0, 100, 200, 300, 400
         np.testing.assert_allclose(X[:, 0], [0, 100, 200, 300, 400], atol=1e-4)
 

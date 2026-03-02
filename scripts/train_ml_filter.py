@@ -50,6 +50,8 @@ _FEATURES: List[str] = [
     "continuity_score",
     "size_score",
     "composite_score",
+    "degree_a",
+    "degree_b",
 ]
 
 
@@ -67,56 +69,12 @@ def _build_oracle(
     """Build the merge oracle using the XPRESS ground-truth skeletons."""
     import h5py
 
-    from connectomics_pipeline.evaluation.xpress_ground_truth import build_merge_oracle
-
-    skeletons_path = str(skeletons_path)
-    if skeletons_path.endswith(".npz"):
-        import cloudvolume  # noqa: F401  (may raise ImportError)
-        import navis
-
-        skels = navis.read_swc(skeletons_path)
-        if not isinstance(skels, list):
-            skels = [skels]
-    else:
-        raise ValueError(f"Unsupported skeleton format: {skeletons_path}")
-
-    with h5py.File(seg_path, "r") as f:
-        seg = f["labels"][()]
-
-    oracle = build_merge_oracle(
-        skeleton_graphs=skels,
-        segmentation=seg,
-        voxel_size_nm=voxel_size_nm,
-        seg_offset_voxels=seg_offset,
+    from connectomics_pipeline.evaluation.xpress_ground_truth import (
+        build_merge_oracle,
+        load_skeleton_graphs,
     )
-    return oracle
 
-
-def _build_oracle_npz_direct(
-    skeletons_path: str,
-    seg_path: str,
-    voxel_size_nm: Tuple[float, float, float],
-    seg_offset: Tuple[int, int, int] = (0, 0, 0),
-) -> Set[Tuple[int, int]]:
-    """Direct npz-based oracle (mirrors xpress_ground_truth.py approach)."""
-    import h5py
-
-    from connectomics_pipeline.evaluation.xpress_ground_truth import build_merge_oracle
-
-    # Load npz skeleton graphs
-    data = np.load(skeletons_path, allow_pickle=True)
-    # Build simple skeleton graph objects matching what build_merge_oracle expects
-    # (it calls skel.nodes_in_volume / skel.graph — see xpress_ground_truth.py)
-    import networkx as nx
-
-    skeleton_graphs = []
-    for key in data.files:
-        arr = data[key]
-        if arr.ndim == 0:
-            obj = arr.item()
-        else:
-            obj = arr
-        skeleton_graphs.append(obj)
+    skeleton_graphs = load_skeleton_graphs(skeletons_path)
 
     with h5py.File(seg_path, "r") as f:
         dataset_key = "labels" if "labels" in f else list(f.keys())[0]
@@ -199,13 +157,29 @@ def train(
 
     # Filter to accepted candidates only
     accepted_mask = connections["status"].str.lower() == "accepted"
-    X_all = connections[_FEATURES].values.astype(np.float32)
-    X = X_all[accepted_mask]
+    accepted = connections[accepted_mask].copy()
+
+    # Compute per-fragment degree (# accepted connections) — key discriminator:
+    # PCA/hub fragments generate 500–2000 spurious accepted connections;
+    # genuine-split fragments typically have degree 1–5.
+    print("Computing fragment degrees from accepted candidates...")
+    from collections import defaultdict
+    degree_map: dict = defaultdict(int)
+    for _, row in accepted.iterrows():
+        degree_map[int(row["fragment_a"])] += 1
+        degree_map[int(row["fragment_b"])] += 1
+    accepted = accepted.copy()
+    accepted["degree_a"] = accepted["fragment_a"].map(degree_map).fillna(0).astype(float)
+    accepted["degree_b"] = accepted["fragment_b"].map(degree_map).fillna(0).astype(float)
+
+    X = accepted[_FEATURES].values.astype(np.float32)
     y = all_labels[accepted_mask]
 
     n_tp = int(y.sum())
     n_fp = int((y == 0).sum())
+    max_deg = max(degree_map.values()) if degree_map else 0
     print(f"  Accepted: {len(y):,} total  |  TP={n_tp:,}  FP={n_fp:,}  ratio=1:{n_fp//max(n_tp,1)}")
+    print(f"  Fragment degrees: max={max_deg}  (PCA hubs drive most FPs)")
 
     if n_tp == 0:
         print("ERROR: No true positives found in accepted candidates. Check oracle mapping.")
@@ -402,7 +376,7 @@ def main() -> None:
     print(f"  Seg offset (vox): {seg_offset}")
 
     try:
-        oracle = _build_oracle_npz_direct(
+        oracle = _build_oracle(
             skeletons_path=args.skeletons,
             seg_path=args.seg,
             voxel_size_nm=voxel_size,

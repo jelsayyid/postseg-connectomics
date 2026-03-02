@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 # Features extracted from CandidateConnection for the classifier.
 # Order must match the training script.
+# degree_a / degree_b = number of accepted connections for each endpoint fragment
+# (computed from the full accepted list, not per-candidate) — this is the key
+# discriminator: PCA fragments generate 500–2000 spurious accepted connections
+# while genuine-split fragments typically have degree 1–5.
 _FEATURES = [
     "gap_distance",
     "proximity_score",
@@ -53,11 +57,34 @@ _FEATURES = [
     "continuity_score",
     "size_score",
     "composite_score",
+    "degree_a",
+    "degree_b",
 ]
 
 
-def _extract_features(candidates: List[CandidateConnection]) -> np.ndarray:
-    """Extract a (N, 6) float32 feature matrix from candidate objects."""
+def _compute_degrees(candidates: List[CandidateConnection]) -> dict:
+    """Count accepted connections per fragment across the candidate list."""
+    from collections import defaultdict
+    degrees: dict = defaultdict(int)
+    for c in candidates:
+        degrees[c.fragment_a] += 1
+        degrees[c.fragment_b] += 1
+    return degrees
+
+
+def _extract_features(
+    candidates: List[CandidateConnection],
+    degrees: dict | None = None,
+) -> np.ndarray:
+    """Extract a (N, 8) float32 feature matrix from candidate objects.
+
+    Args:
+        candidates: Candidates to featurize (should be the accepted subset).
+        degrees: Pre-computed per-fragment degree dict from _compute_degrees().
+            If None, degree_a and degree_b are set to 0.
+    """
+    if degrees is None:
+        degrees = {}
     rows = []
     for c in candidates:
         rows.append([
@@ -67,6 +94,8 @@ def _extract_features(candidates: List[CandidateConnection]) -> np.ndarray:
             c.continuity_score,
             c.size_score,
             c.composite_score,
+            float(degrees.get(c.fragment_a, 0)),
+            float(degrees.get(c.fragment_b, 0)),
         ])
     return np.array(rows, dtype=np.float32) if rows else np.empty((0, len(_FEATURES)), dtype=np.float32)
 
@@ -151,7 +180,8 @@ class MLFilter:
         if not accepted_cands:
             return report
 
-        X = _extract_features(accepted_cands)
+        degrees = _compute_degrees(accepted_cands)
+        X = _extract_features(accepted_cands, degrees)
 
         try:
             probas: np.ndarray = self._model.predict_proba(X)[:, 1]
