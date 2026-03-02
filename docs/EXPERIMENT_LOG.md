@@ -1069,7 +1069,68 @@ Coverage held at 81.7%. Precision unchanged at 0.005 (dominated by FPs from non-
 
 ---
 
-## Experiment 13: Larger Volume Scalability
+## Experiment 13: Wider Long-Range Search (max_endpoint_search_nm=3000)
+
+**Date:** 2026-03-02
+**Objective:** Test whether raising the long-range endpoint search radius from 2000 → 3000 nm can
+recover oracle pairs in the 274 remaining uncoverable gap class without regressing the recall
+achieved in Experiment 12.
+
+### Setup
+
+- Volume: `/tmp/xpress_full.h5` (699³ voxels, 33 nm isotropic)
+- Graph: `skeleton_node`, `max_distance_nm=500`, `max_endpoint_search_nm=3000` (was 2000)
+- All other config identical to Exp 12 (accept_threshold=0.25, curvature=150°, max_endpoint_distance_nm=600)
+- Export: CSV-only (graphml disabled to avoid potential serialization OOM)
+- Baseline (Exp 12): Coverage=81.7% (1225/1499), Recall=0.898
+
+### Results
+
+Runtime: 41.3 min (2476 s). Long-range pass added 855,691 edges (vs. 324,678 at 2000 nm; 2.6×).
+
+| Metric      | Exp 12 (2000 nm)  | Exp 13 (3000 nm)  | Delta  |
+|-------------|-------------------|-------------------|--------|
+| Coverage    | 81.7% (1225/1499) | **85.3% (1279/1499)** | **+3.6%** |
+| Recall      | **0.898**         | 0.865             | **−0.033** |
+| Precision   | 0.005             | 0.002             | −0.003 |
+| TP          | 1100              | 1106              | +6     |
+| FN          | 125               | 173               | **+48** |
+| Candidates  | 362,718           | 821,981           | +459K  |
+| Accepted    | 234,007           | 560,312           | +326K  |
+| Rejected    | 128,685           | 261,640           | +133K  |
+
+**Negative result.** Coverage improved (+3.6%), but recall regressed (0.898 → 0.865).
+
+Root cause: 54 new oracle pairs became candidates (gaps 2000–3000 nm), but only 6 were accepted;
+48 were rejected. Acceptance rate = 11% vs. ~90% for the 2000 nm pairs. At d≥2000 nm:
+- proximity ≈ exp(−3×2000/600) ≈ 0 (max_endpoint_distance_nm=600 is the decay reference)
+- alignment and continuity scores are also unreliable for endpoint-centroid directions at these gaps
+- composite < 0.25 → rejected even with the lowered accept_threshold
+
+Config reverted to Exp 12 settings (2000 nm, graphml+csv). Exp 12 remains the best configuration.
+
+### Analysis
+
+For oracle pairs with 2000–3000 nm gaps to have positive recall, the scoring system would need
+either (a) proximity weight tuned to a much larger reference distance for long-range pairs, or
+(b) a separate scoring branch that ignores proximity entirely for d > 1000 nm. Neither is
+implemented; they are architectural changes, not config tuning.
+
+The precision regression (0.005 → 0.002) reflects the 2.3× candidate explosion: most new
+long-range edges connect non-oracle fragments, which now get accepted anyway (since accept_threshold
+is already low), swelling FPs.
+
+### Next Steps
+
+- [x] Confirm Exp 12 (2000 nm) is optimal for current scoring architecture
+- [ ] Consider a scoring branch for very-long-range pairs (d > 1000 nm): set proximity=0 and
+  up-weight alignment/continuity instead of treating proximity=0 as a penalty
+- [ ] Precision improvement: 560K accepted → 559K FPs. For downstream use, stricter thresholds
+  or a post-hoc filter may be needed
+
+---
+
+## Experiment 14: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.
