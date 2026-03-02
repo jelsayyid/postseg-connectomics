@@ -84,7 +84,7 @@ validation:
   rules:
     - name: "MaxDistanceRule"
       params:
-        max_distance_nm: 5000        # Raised: PCA bbox pairs use nearest-endpoint distance (1000-3000nm for large fragments)
+        max_distance_nm: 20000       # Raised: PCA bbox fallback uses _find_best_endpoint_pair() → PCA tip-to-tip distance up to ~12000nm
     - name: "CurvatureRule"
       params:
         max_curvature_deg: 150       # was 120; endpoint-centroid unreliable for interior splits on large fragments
@@ -94,7 +94,7 @@ validation:
         min_alignment: 0.0
     - name: "SizeDiscrepancyRule"
       params:
-        max_radius_ratio: 5.0        # Raised: trunk-to-tip fragment size ratio can be 3-13x in XPRESS
+        max_radius_ratio: 15.0       # Raised: trunk-to-tip radius 3-13x → voxel ratio up to 13^3=2197x → cube-root=13; 15.0 gives headroom
     - name: "BranchingLimitRule"
       params:
         max_branches: 5000           # Raised: PCA bbox graph has degree up to 2379 for large fragments

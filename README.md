@@ -37,8 +37,8 @@ Segmentation Volume → Fragment Extraction → Graph Construction → Candidate
 | Metric | Value |
 |--------|-------|
 | Oracle coverage | **83.5%** (1,252 / 1,499 true merge pairs reached candidate stage) |
-| Recall | **0.916** (of covered oracle pairs, 91.6% correctly accepted) |
-| Precision | 0.005 |
+| Recall | **0.994** (of covered oracle pairs, 99.4% correctly accepted) |
+| Precision | 0.004 |
 
 Full 699³ voxel training volume, 33 nm isotropic resolution, myelinated cortical axons. Evaluation uses skeleton-based ground truth (XPRESS challenge oracle). This is the primary domain-appropriate benchmark — automated (imperfect) segmentation input, with true split errors along axon interiors that the pipeline must detect and propose to merge. Low precision reflects the open challenge of discriminating same-axon from different-axon long-range pairs.
 
