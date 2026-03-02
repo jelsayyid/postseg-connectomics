@@ -114,6 +114,15 @@ class AssemblyConfig:
     flag_ambiguous: bool = True
     detect_cycles: bool = True
     max_branch_order: int = 10
+    # Greedy conflict resolution: each fragment keeps only its top-N accepted
+    # partners by composite_score.  A candidate is retained only when BOTH
+    # endpoint fragments rank it in their top-N, bounding each fragment's final
+    # merge-partner count to at most max_partners_per_fragment.
+    # Biological motivation: axon fragments have at most 2 legitimate merge
+    # partners (one per endpoint); keeping only the top-2 eliminates the bulk
+    # of spurious long-range cross-axon acceptances.
+    # Set to 0 (default) to disable and accept all validated candidates.
+    max_partners_per_fragment: int = 0
 
 
 @dataclass

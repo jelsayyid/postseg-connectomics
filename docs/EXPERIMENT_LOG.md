@@ -1397,10 +1397,188 @@ radius (not feasible at current memory limits) or a different approach to long-r
 
 ---
 
-## Experiment 18: Larger Volume Scalability
+## Experiment 18: Greedy Partner-Limit Conflict Resolution
 
-**Date:** _(pending)_
-**Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.
+**Date:** 2026-03-02
+**Objective:** Dramatically reduce false positives (Precision=0.004, 354K FPs vs 1245 TPs in Exp 17)
+by applying a greedy post-validation filter: each fragment keeps only its top-N accepted partners
+by composite_score.  The biological motivation is that each axon has at most 2 legitimate merge
+partners (one per endpoint); spurious long-range cross-axon acceptances inflate FP count.
+
+### Root Cause
+
+Exp 17 (MaxDistanceRule 20000nm, SizeDiscrepancyRule 15.0) achieved Recall=0.994 by accepting
+many PCA bbox pairs with loose thresholds.  This introduced ~103K additional FPs (251K→355K
+accepted).  High-degree PCA fragments each have hundreds of accepted partners; only 1–2 are genuine.
+
+### New Feature: `assembly.max_partners_per_fragment`
+
+**Implementation** (no pipeline logic changes; new assembly post-filter):
+
+- `AssemblyConfig.max_partners_per_fragment: int = 0` — default 0 = disabled
+- `_apply_partner_limit(accepted_cids, cand_map, max_partners)` in `assembly/assembler.py`:
+  1. Build per-fragment partner lists ranked by composite_score descending
+  2. Compute top-N set for each fragment
+  3. Keep a candidate only if BOTH endpoint fragments include it in their top-N **(AND semantics)**
+     — this guarantees each fragment's final degree ≤ max_partners
+  4. Update candidate `.status` to REJECTED for filtered candidates so downstream evaluation
+     (`evaluate_decisions_xpress`) reflects the change
+- `Assembler.assemble()` calls the filter before building the assembly graph when
+  `config.max_partners_per_fragment > 0`
+
+**Config change (`xpress_sample.yaml`):**
+```yaml
+assembly:
+  max_partners_per_fragment: 2   # was absent (= disabled)
+```
+
+**AND semantics rationale:** OR semantics (keep if either fragment includes it in top-N) fails to
+cap degree for high-degree PCA nodes because 300+ other fragments can "impose" their connection.
+AND semantics ensures each fragment's degree is strictly ≤ max_partners.
+
+**FN diagnostic helper** (Priority 2, implemented alongside):
+
+`fn_diagnosis(candidates, store, oracle, report=None)` added to
+`evaluation/xpress_ground_truth.py`.  For each FN (rejected oracle pair), extracts the first
+REJECTED validation rule from the ValidationReport and returns a sorted list of dicts.  Use this
+to profile the 7 remaining FNs from Exp 17 and any new FNs introduced by the partner limit.
+
+### Tests
+
+- 15 new tests added: 7 for `_apply_partner_limit` (AND semantics, score ordering, assembler
+  integration), 8 for `fn_diagnosis` (FN identification, rule attribution, sorting)
+- Total: **406 tests, 0 failures**
+
+### Setup
+
+- Config: `configs/xpress_sample.yaml` with `assembly.max_partners_per_fragment: 2`
+- Volume: `/tmp/xpress_full.h5` (699³ voxels, 33 nm isotropic)
+- Baseline (Exp 17): Coverage=83.5% (1252/1499), Recall=0.994, Precision=0.004
+  TP=1245, FP=354163, Accepted=355408
+
+### Results (2026-03-02)
+
+Runtime: 1972 s (32.9 min). Partner limit fired: 349,212 / 355,408 accepted candidates removed.
+
+| Metric      | Exp 17 (baseline)     | Exp 18 (max_partners=2) | Delta       |
+|-------------|------------------------|--------------------------|-------------|
+| Coverage    | **83.5% (1252/1499)**  | **83.5% (1252/1499)**    | 0           |
+| TP          | 1245                   | **10**                   | **−1235**   |
+| FP          | 354,163                | 6,186                    | −347,977    |
+| Recall      | **0.994**              | **0.008**                | **−0.986**  |
+| Precision   | 0.0035                 | 0.0016                   | −0.002      |
+| F1          | 0.007                  | 0.003                    | −0.004      |
+| Accepted    | 355,408                | 6,196                    | −349,212    |
+
+**Degree distribution after partner limit:** max=2 ✓, mean=1.46, median=1 — the limit works mechanically.
+
+### Root-Cause Diagnosis (NEGATIVE RESULT)
+
+**Why Recall collapsed:**
+
+The AND semantics requires a TP to rank in the top-2 by composite_score for BOTH endpoint
+fragments.  Profiling oracle pair ranks within each fragment's accepted partner list:
+
+| Rank statistic | By composite_score | By alignment+continuity |
+|---------------|-------------------|------------------------|
+| Median rank   | 46 / ~63 partners | 42 / ~63 partners      |
+| Top-2 survival | 2.5% of TPs       | 2.2% of TPs            |
+| Top-5 survival | 4.7% of TPs       | 5.8% of TPs            |
+
+**TPs rank near the bottom of each fragment's partner list.** Root cause: short-range FPs
+(gap ~99nm, proximity~0.61) have higher composite scores than oracle TPs (gap ~440nm,
+proximity~0.11). FPs dominate every fragment's top-2 regardless of ranking key used.
+
+Score medians:
+```
+                   Oracle TPs    Short-gap FPs   Winner
+composite_score    0.440         0.577           FPs (by 31%)
+alignment          0.514         0.571           FPs (by 11%)
+continuity         0.510         0.553           FPs (by 8%)
+alignment+cont     1.023         1.124           FPs (by 9%)
+gap_distance       440 nm        99 nm           TPs (4.4×)
+```
+
+No single score cleanly separates TPs from FPs because:
+- Validation already filtered the obvious bad candidates: surviving FPs look geometrically OK
+- Proximity rewards short gaps → systematically favours adjacent-axon FPs over true oracle TPs
+- Even proximity-independent features (alignment, continuity) don't cleanly separate them
+
+**Why Precision also worsened:** With only 10 TPs in 6,196 accepted, precision = 10/6196 = 0.0016 —
+*worse* than Exp 17 (0.0035).  The partner limit removed proportionally more TPs than FPs.
+
+### Key Finding
+
+**The partner limit strategy is architecturally sound but requires a feature that cleanly
+separates TPs from FPs.** No existing pipeline score achieves this for XPRESS.
+
+The only feature with clear separation is `gap_distance`: oracle pairs have median gap 440nm
+vs short-range FPs at 99nm (4.4× ratio).  This motivates a gap-minimum filter rather than a
+score-based partner limit.
+
+### Config Reverted
+
+`xpress_sample.yaml` reverted to `max_partners_per_fragment: 0` (disabled, Exp 17 baseline).
+
+### Code Retained
+
+`_apply_partner_limit()` and `fn_diagnosis()` remain in the codebase with full tests (406 total).
+The partner limit infrastructure will be useful once an ML-derived score cleanly separates TPs
+from FPs (Priority 5 in the roadmap).
+
+---
+
+## Experiment 18b: FN Diagnosis of Exp 17 False Negatives
+
+**Date:** 2026-03-02
+**Objective:** Profile the 7 FNs remaining in Exp 17 at the per-rule level using `fn_diagnosis()`.
+These can only be diagnosed by running the pipeline with `ValidationReport` stored in memory
+(not available from CSV).  Pending in-memory pipeline run.
+
+### Usage
+
+```python
+from connectomics_pipeline.evaluation.xpress_ground_truth import (
+    build_merge_oracle, evaluate_decisions_xpress, fn_diagnosis
+)
+# After pipeline run (pipeline.report is the ValidationReport object):
+records = fn_diagnosis(pipeline.candidates, pipeline.store, oracle, report=pipeline.report)
+for r in records:
+    print(f"FN cid={r['candidate_id']} gap={r['gap_nm']:.0f}nm "
+          f"composite={r['composite_score']:.3f} first_reject={r['first_reject_rule']}: "
+          f"{r['first_reject_reason']}")
+```
+
+### Expected Findings (from Exp 17 memory)
+
+The 7 Exp 17 FNs fail `CompositeScoreRule` (composite < 0.15) or `SizeDiscrepancyRule`
+(radius_ratio > 15.0).  Pending confirmation.
+
+---
+
+## Experiment 19: Precision via Gap-Minimum Filter
+
+**Proposed Date:** TBD
+**Objective:** Improve precision by rejecting short-gap candidates (gap < threshold) where
+different axons accidentally overlap.  Gap-distance is the strongest separator: oracle pairs
+have median gap 440nm vs short-range FPs at 99nm.
+
+**Proposed approach:** Add `MinGapRule` to validation:
+```yaml
+- name: "MinGapRule"
+  params:
+    min_gap_nm: 250   # reject candidates closer than this; oracle loses ~12% of TPs
+```
+
+**Expected impact:**
+- Oracle pairs with gap < 250nm: ~120/1252 = ~9.6% → FN increase of ~120
+- Short-gap FPs removed: majority of the ~6957 short-range FPs
+- Net precision improvement: significant; recall drops from 0.994 to ~0.90
+
+**Trade-off:** Rejects some genuine splits where adjacent segments touch directly.
+Lower `min_gap_nm` (e.g., 50nm) is more conservative but removes fewer FPs.
+
+**Preferred min_gap_nm values to test:** 50, 100, 150, 250 nm
 
 ---
 

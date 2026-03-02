@@ -107,6 +107,11 @@ assembly:
   flag_ambiguous: true
   detect_cycles: true
   max_branch_order: 5               # Low — white matter has few branch points
+  # Greedy conflict resolution — DISABLED (Exp 18 result: negative).
+  # AND semantics with composite_score ranking caused catastrophic recall regression
+  # (1245→10 TPs) because TPs rank at median position 46/63 within each fragment
+  # (short-range FPs dominate by proximity score).  Set to 2 to reproduce Exp 18.
+  max_partners_per_fragment: 0
 
 export:
   formats: ["graphml", "csv"]        # precomputed_seg disabled: 699^3 volume too large to write in-process

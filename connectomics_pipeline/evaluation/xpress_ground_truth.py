@@ -19,13 +19,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
 if TYPE_CHECKING:
     from connectomics_pipeline.fragments.store import FragmentStore
-    from connectomics_pipeline.utils.types import CandidateConnection
+    from connectomics_pipeline.utils.types import CandidateConnection, ValidationReport
 
 logger = logging.getLogger("evaluation.xpress_ground_truth")
 
@@ -267,3 +267,98 @@ def evaluate_decisions_xpress(
         "recall": recall,
         "f1": f1,
     }
+
+
+def fn_diagnosis(
+    candidates: List["CandidateConnection"],
+    store: "FragmentStore",
+    merge_oracle: Set[Tuple[int, int]],
+    report: Optional["ValidationReport"] = None,
+) -> List[Dict[str, Any]]:
+    """Diagnose false negative candidates: oracle pairs rejected by the pipeline.
+
+    For each candidate that is (a) rejected and (b) in the merge oracle (ground
+    truth says it should merge), extract which validation rule fired first with a
+    REJECTED decision.  Useful for pinpointing the dominant blocker among the
+    remaining FNs.
+
+    Args:
+        candidates: All candidate connections (any status).
+        store: Fragment store for label_id lookup.
+        merge_oracle: Set of (seg_a, seg_b) pairs from build_merge_oracle().
+        report: Optional ValidationReport produced during validation.  When
+            provided, per-rule outcomes are extracted for each FN.  If None,
+            rule attribution is omitted.
+
+    Returns:
+        List of dicts sorted by gap_nm ascending, one per FN, with keys:
+            candidate_id, fragment_a, fragment_b, label_pair,
+            gap_nm, composite_score,
+            first_reject_rule (None if rule info unavailable),
+            first_reject_reason (None if rule info unavailable),
+            all_rule_results (list of rule dicts, empty if report is None).
+    """
+    from connectomics_pipeline.utils.types import ConnectionStatus
+
+    fn_records: List[Dict[str, Any]] = []
+    for cand in candidates:
+        if cand.status != ConnectionStatus.REJECTED:
+            continue
+
+        frag_a = store.get(cand.fragment_a)
+        frag_b = store.get(cand.fragment_b)
+        if frag_a is None or frag_b is None:
+            continue
+
+        pair = (
+            min(frag_a.label_id, frag_b.label_id),
+            max(frag_a.label_id, frag_b.label_id),
+        )
+        if pair not in merge_oracle:
+            continue  # true negative — not a FN
+
+        # Extract rule-level information from the ValidationReport
+        rule_results_raw = []
+        first_reject_rule: Optional[str] = None
+        first_reject_reason: Optional[str] = None
+
+        if report is not None:
+            rule_results_raw = report.results.get(cand.candidate_id, [])
+            first_reject = next(
+                (r for r in rule_results_raw if r.decision == ConnectionStatus.REJECTED),
+                None,
+            )
+            if first_reject is not None:
+                first_reject_rule = first_reject.rule_name
+                first_reject_reason = first_reject.reason
+
+        fn_records.append(
+            {
+                "candidate_id": cand.candidate_id,
+                "fragment_a": cand.fragment_a,
+                "fragment_b": cand.fragment_b,
+                "label_pair": pair,
+                "gap_nm": round(cand.gap_distance, 1),
+                "composite_score": round(cand.composite_score, 4),
+                "first_reject_rule": first_reject_rule,
+                "first_reject_reason": first_reject_reason,
+                "all_rule_results": [
+                    {
+                        "rule": r.rule_name,
+                        "decision": r.decision.value,
+                        "confidence": round(r.confidence, 4),
+                        "reason": r.reason,
+                    }
+                    for r in rule_results_raw
+                ],
+            }
+        )
+
+    fn_records.sort(key=lambda x: x["gap_nm"])
+
+    logger.info(
+        "FN diagnosis: %d false negatives among %d rejected candidates",
+        len(fn_records),
+        sum(1 for c in candidates if c.status == ConnectionStatus.REJECTED),
+    )
+    return fn_records

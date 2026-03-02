@@ -9,6 +9,7 @@ import pytest
 from connectomics_pipeline.evaluation.xpress_ground_truth import (
     build_merge_oracle,
     evaluate_decisions_xpress,
+    fn_diagnosis,
     load_skeleton_graphs,
 )
 from connectomics_pipeline.fragments.store import FragmentStore
@@ -17,6 +18,8 @@ from connectomics_pipeline.utils.types import (
     CandidateConnection,
     ConnectionStatus,
     Fragment,
+    ValidationReport,
+    ValidationResult,
 )
 
 # ---------------------------------------------------------------------------
@@ -341,3 +344,129 @@ class TestEvaluateDecisionsXpress:
         r = 1.0
         expected_f1 = 2 * p * r / (p + r)
         assert abs(result["f1"] - expected_f1) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# fn_diagnosis
+# ---------------------------------------------------------------------------
+
+
+class TestFnDiagnosis:
+    """Tests for fn_diagnosis(): FN identification and rule attribution."""
+
+    @pytest.fixture
+    def simple_store_oracle(self):
+        """2 fragments (segs 1,2) that oracle says should merge."""
+        store = FragmentStore()
+        store.add(_make_fragment(0, 1))
+        store.add(_make_fragment(1, 2))
+        oracle = {(1, 2)}
+        return store, oracle
+
+    def test_rejected_oracle_pair_is_fn(self, simple_store_oracle):
+        """A rejected candidate whose label pair is in the oracle → FN returned."""
+        store, oracle = simple_store_oracle
+        cand = _make_candidate(0, 0, 1, ConnectionStatus.REJECTED)
+        records = fn_diagnosis([cand], store, oracle)
+        assert len(records) == 1
+        assert records[0]["candidate_id"] == 0
+        assert records[0]["label_pair"] == (1, 2)
+
+    def test_accepted_oracle_pair_not_fn(self, simple_store_oracle):
+        """An accepted oracle pair is a TP, not a FN — not returned."""
+        store, oracle = simple_store_oracle
+        cand = _make_candidate(0, 0, 1, ConnectionStatus.ACCEPTED)
+        records = fn_diagnosis([cand], store, oracle)
+        assert len(records) == 0
+
+    def test_rejected_non_oracle_pair_not_fn(self, simple_store_oracle):
+        """A rejected candidate not in the oracle is a TN — not returned."""
+        store, oracle = simple_store_oracle
+        store.add(_make_fragment(2, 3))
+        cand = _make_candidate(0, 0, 2, ConnectionStatus.REJECTED)  # segs (1, 3) not in oracle
+        records = fn_diagnosis([cand], store, oracle)
+        assert len(records) == 0
+
+    def test_missing_fragment_skipped(self, simple_store_oracle):
+        """Candidate with unknown fragment ID is silently skipped."""
+        store, oracle = simple_store_oracle
+        cand = _make_candidate(0, 0, 99, ConnectionStatus.REJECTED)
+        records = fn_diagnosis([cand], store, oracle)
+        assert len(records) == 0
+
+    def test_rule_attribution_with_report(self, simple_store_oracle):
+        """With a ValidationReport, first_reject_rule is extracted correctly."""
+        store, oracle = simple_store_oracle
+        cand = _make_candidate(0, 0, 1, ConnectionStatus.REJECTED)
+
+        reject_result = ValidationResult(
+            rule_name="MaxDistanceRule",
+            decision=ConnectionStatus.REJECTED,
+            confidence=1.0,
+            reason="Gap distance 25000.0 nm exceeds max 20000.0 nm",
+        )
+        accept_result = ValidationResult(
+            rule_name="CurvatureRule",
+            decision=ConnectionStatus.ACCEPTED,
+            confidence=0.8,
+            reason="Curvature within limit",
+        )
+        report = ValidationReport(
+            results={0: [accept_result, reject_result]},
+            accepted=[],
+            rejected=[0],
+            ambiguous=[],
+        )
+
+        records = fn_diagnosis([cand], store, oracle, report=report)
+        assert len(records) == 1
+        assert records[0]["first_reject_rule"] == "MaxDistanceRule"
+        assert "25000" in records[0]["first_reject_reason"]
+        assert len(records[0]["all_rule_results"]) == 2
+
+    def test_no_report_rule_fields_are_none(self, simple_store_oracle):
+        """Without a report, first_reject_rule and first_reject_reason are None."""
+        store, oracle = simple_store_oracle
+        cand = _make_candidate(0, 0, 1, ConnectionStatus.REJECTED)
+        records = fn_diagnosis([cand], store, oracle, report=None)
+        assert len(records) == 1
+        assert records[0]["first_reject_rule"] is None
+        assert records[0]["first_reject_reason"] is None
+        assert records[0]["all_rule_results"] == []
+
+    def test_sorted_by_gap_nm(self, simple_store_oracle):
+        """Results are sorted ascending by gap_nm."""
+        store, oracle = simple_store_oracle
+        store.add(_make_fragment(2, 3))
+        store.add(_make_fragment(3, 4))
+        oracle2 = {(1, 2), (3, 4)}
+
+        # cid 0: gap_nm ≈ 173 nm (endpoint_b - endpoint_a = (100,100,100))
+        # cid 1: gap_nm ≈ 0 nm (same endpoints)
+        cand_far = CandidateConnection(
+            candidate_id=0,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.zeros(3),
+            endpoint_b=np.array([100.0, 100.0, 100.0]),
+            composite_score=0.3,
+            status=ConnectionStatus.REJECTED,
+        )
+        cand_close = CandidateConnection(
+            candidate_id=1,
+            fragment_a=2,
+            fragment_b=3,
+            endpoint_a=np.zeros(3),
+            endpoint_b=np.zeros(3),
+            composite_score=0.2,
+            status=ConnectionStatus.REJECTED,
+        )
+        records = fn_diagnosis([cand_far, cand_close], store, oracle2)
+        assert len(records) == 2
+        assert records[0]["gap_nm"] <= records[1]["gap_nm"]
+
+    def test_empty_candidate_list(self, simple_store_oracle):
+        """Empty input → empty output."""
+        store, oracle = simple_store_oracle
+        records = fn_diagnosis([], store, oracle)
+        assert records == []

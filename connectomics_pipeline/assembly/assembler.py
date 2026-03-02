@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from collections import defaultdict
+from typing import Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
@@ -20,6 +21,57 @@ from connectomics_pipeline.utils.types import (
 )
 
 logger = get_logger("assembly.assembler")
+
+
+def _apply_partner_limit(
+    accepted_cids: List[int],
+    cand_map: Dict[int, CandidateConnection],
+    max_partners: int,
+) -> List[int]:
+    """Filter accepted candidates to keep at most max_partners per fragment.
+
+    For each fragment, ranks its accepted partners by composite_score descending
+    and keeps only the top-max_partners.  A candidate is retained only when it
+    ranks within the top-max_partners for BOTH endpoint fragments (AND semantics),
+    guaranteeing that each fragment's final accepted-partner count is ≤ max_partners.
+
+    This implements greedy conflict resolution: when a fragment has many spurious
+    long-range acceptances, only the highest-scoring partners survive, which are
+    most likely to be the genuine merge targets.
+
+    Args:
+        accepted_cids: Candidate IDs currently marked as accepted.
+        cand_map: Mapping from candidate_id → CandidateConnection.
+        max_partners: Maximum accepted partners allowed per fragment.
+
+    Returns:
+        Filtered list of candidate IDs (subset of accepted_cids).
+    """
+    # Build per-fragment partner lists: frag_id → [(composite_score, cid)]
+    frag_partners: Dict[int, List[Tuple[float, int]]] = defaultdict(list)
+    for cid in accepted_cids:
+        c = cand_map.get(cid)
+        if c is None:
+            continue
+        frag_partners[c.fragment_a].append((c.composite_score, cid))
+        frag_partners[c.fragment_b].append((c.composite_score, cid))
+
+    # Compute top-N set for each fragment
+    frag_top: Dict[int, Set[int]] = {}
+    for frag_id, partners in frag_partners.items():
+        partners.sort(key=lambda x: x[0], reverse=True)
+        frag_top[frag_id] = {cid for _, cid in partners[:max_partners]}
+
+    # Keep a candidate only if BOTH fragments include it in their top-N
+    kept: List[int] = []
+    for cid in accepted_cids:
+        c = cand_map.get(cid)
+        if c is None:
+            kept.append(cid)
+            continue
+        if cid in frag_top.get(c.fragment_a, set()) and cid in frag_top.get(c.fragment_b, set()):
+            kept.append(cid)
+    return kept
 
 
 class Assembler:
@@ -49,9 +101,31 @@ class Assembler:
         # Build mapping from candidate_id to candidate
         cand_map: Dict[int, CandidateConnection] = {c.candidate_id: c for c in candidates}
 
+        # Apply greedy partner limit (if configured) before building assembly graph
+        effective_accepted: List[int] = list(report.accepted)
+        if self.config.max_partners_per_fragment > 0:
+            effective_accepted = _apply_partner_limit(
+                effective_accepted, cand_map, self.config.max_partners_per_fragment
+            )
+            filtered_count = len(report.accepted) - len(effective_accepted)
+            if filtered_count:
+                logger.info(
+                    "Partner limit (max=%d): removed %d / %d accepted candidates",
+                    self.config.max_partners_per_fragment,
+                    filtered_count,
+                    len(report.accepted),
+                )
+                # Update candidate statuses so downstream evaluation reflects the change
+                kept_set: Set[int] = set(effective_accepted)
+                for cid in report.accepted:
+                    if cid not in kept_set:
+                        c = cand_map.get(cid)
+                        if c is not None:
+                            c.status = ConnectionStatus.REJECTED
+
         # Build assembly graph from accepted connections only
         assembly_graph = nx.Graph()
-        for cid in report.accepted:
+        for cid in effective_accepted:
             c = cand_map.get(cid)
             if c is None:
                 continue
@@ -110,6 +184,6 @@ class Assembler:
         logger.info(
             "Assembled %d structures from %d accepted connections",
             len(structures),
-            len(report.accepted),
+            len(effective_accepted),
         )
         return structures
