@@ -1556,29 +1556,82 @@ The 7 Exp 17 FNs fail `CompositeScoreRule` (composite < 0.15) or `SizeDiscrepanc
 
 ---
 
-## Experiment 19: Precision via Gap-Minimum Filter
+## Experiment 19: Precision via Gap-Minimum Filter (MinGapRule)
 
-**Proposed Date:** TBD
+**Date:** 2026-03-02
 **Objective:** Improve precision by rejecting short-gap candidates (gap < threshold) where
-different axons accidentally overlap.  Gap-distance is the strongest separator: oracle pairs
-have median gap 440nm vs short-range FPs at 99nm.
+different axons accidentally overlap.  Gap-distance was identified in Exp 18 as the strongest
+TP/FP separator (oracle pairs median 440nm vs short-range FPs 99nm).
 
-**Proposed approach:** Add `MinGapRule` to validation:
-```yaml
-- name: "MinGapRule"
-  params:
-    min_gap_nm: 250   # reject candidates closer than this; oracle loses ~12% of TPs
+### New Rule: `MinGapRule`
+
+Added to `validation/rules.py` and `RULE_REGISTRY`.  Rejects candidates with
+`gap_distance < min_gap_nm`; confidence scales linearly from 0.5 (at threshold) to 1.0 (at
+`max_expected_nm`).  8 unit tests added → **414 tests, 0 failures**.
+
+### Setup
+
+- Config: `configs/xpress_sample.yaml` with `MinGapRule(min_gap_nm=150)` as first rule
+- Volume: `/tmp/xpress_full.h5` (699³ voxels, 33 nm isotropic)
+- Baseline (Exp 17): Coverage=83.5%, Recall=0.994, Precision=0.0035, TP=1245, FP=354163
+
+### Results (2026-03-02)
+
+Runtime: 1984 s (33.1 min).
+
+| Metric      | Exp 17 (baseline)     | Exp 19 (min_gap=150nm) | Delta       |
+|-------------|------------------------|------------------------|-------------|
+| Coverage    | **83.5% (1252/1499)**  | **83.5% (1252/1499)**  | 0           |
+| TP          | 1245                   | 1209                   | −36         |
+| FP          | 354,163                | 349,004                | **−5,159**  |
+| Recall      | **0.994**              | 0.966                  | −0.028      |
+| Precision   | 0.0035                 | 0.0035                 | 0           |
+| Accepted    | 355,408                | 350,213                | −5,195      |
+| Rejected    | 14,015                 | 19,210                 | +5,195      |
+
+**Precision is unchanged** despite removing 5,159 FPs.  Net F1 negligibly lower.
+
+### Root-Cause Analysis (NEGATIVE — wrong assumption)
+
+The plan assumed short-gap adjacency artifacts drive the bulk of FPs.  They do not.
+
+FP gap-distance breakdown:
+- Short-range FPs (gap < 150nm): ~5,159 of 354,163 = **1.5%**
+- Long-range FPs (gap 150-2000nm): **~98.5%** — the dominant source
+
+The long-range endpoint pass (2000nm radius) generates ~285K candidate pairs where two
+**different** axons happen to have endpoints within 2000nm of each other.  These are
+cross-axon pairs with gaps of 500-2000nm — identical to genuine oracle TPs in gap_distance.
+No threshold on gap can remove them without simultaneously removing oracle TPs.
+
+The short-gap FP population (adjacency artifacts, gap < 150nm) is a secondary phenomenon:
+
+```
+Total FPs removed at 150nm:  5,159  (1.5% of 354K)
+Oracle TPs removed:             36  (2.9% of 1245)
+Net ratio:                     143 FPs per TP lost
 ```
 
-**Expected impact:**
-- Oracle pairs with gap < 250nm: ~120/1252 = ~9.6% → FN increase of ~120
-- Short-gap FPs removed: majority of the ~6957 short-range FPs
-- Net precision improvement: significant; recall drops from 0.994 to ~0.90
+Even at 143:1 FP/TP removal ratio, the absolute numbers are too small to move the needle
+on precision (350K FPs remain regardless).
 
-**Trade-off:** Rejects some genuine splits where adjacent segments touch directly.
-Lower `min_gap_nm` (e.g., 50nm) is more conservative but removes fewer FPs.
+### Conclusion
 
-**Preferred min_gap_nm values to test:** 50, 100, 150, 250 nm
+`MinGapRule` is a useful guard against adjacency artifacts but cannot solve the XPRESS
+precision problem.  The root cause is the **long-range endpoint search**: ~285K long-gap
+cross-axon pairs are indistinguishable from genuine TPs using rule-based features alone.
+
+**The only viable precision path is an ML classifier** trained on the labeled candidate
+pool (1,252 TPs + 353K FPs) to score each candidate as genuine/spurious.  Features
+available: `gap_distance, proximity_score, alignment_score, continuity_score, size_score,
+composite_score` (all in `connections.csv`).  Expected: precision 0.1–0.5 at recall ≥ 0.99
+using LightGBM or logistic regression.
+
+### Config Status
+
+`MinGapRule(min_gap_nm=150)` retained in `xpress_sample.yaml` (guards against adjacency
+artifacts at low recall cost: 2.9% TPs lost, 1.5% FPs gained).  Can be removed for
+pure Exp 17 baseline by setting `min_gap_nm: 0` or deleting the rule entry.
 
 ---
 

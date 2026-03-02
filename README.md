@@ -166,10 +166,32 @@ pytest tests/ --cov=connectomics_pipeline --cov-report=term-missing  # with cove
 
 **391 tests**, passing on Python 3.10, 3.11, and 3.12. CI runs automatically on every push and pull request via GitHub Actions (`.github/workflows/ci.yml`): tests, black formatting check, and mypy type checking.
 
+## Visual Diagnostic Report
+
+A 7-page PDF report (`/tmp/xpress_visual_report.pdf`) visualises Experiment 17 decisions in the context of the raw segmentation volume. Generate it with:
+
+```bash
+cd /mnt/c/Users/ajels/projects/senior_project/postseg-connectomics
+python /tmp/xpress_visual_report.py
+# Output: /tmp/xpress_visual_report.pdf  (~36 s; requires /tmp/xpress_full.h5)
+```
+
+| Page | Content |
+|------|---------|
+| 1 | Overview — 3 z-slices (Z≈175/350/525) with TP (green) and FN (red ×) overlays |
+| 2 | Score distributions — composite score and gap distance histograms for TP/FP/FN |
+| 3 | TP spotlight — 12 short-range TPs (gap < 500 nm), 150×150 voxel crops |
+| 4 | TP spotlight — 12 long-range TPs (gap ≥ 500 nm) |
+| 5 | **FN spotlight — all 7 false negatives** (the primary validation page) |
+| 6 | FP spotlight — top 12 highest-score false positives |
+| 7 | Scatter — composite score vs gap distance, full range and zoomed to < 2000 nm |
+
+Crop rendering: fragment A = cyan, fragment B = orange, other labels = dark gray, background = black. Each panel title shows gap distance and composite score.
+
 ## Documentation
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — Full system design, data flow, and module interfaces
-- [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) — All pipeline runs with quantitative results (Experiments 1–16)
+- [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) — All pipeline runs with quantitative results (Experiments 1–17)
 - [`docs/TESTING.md`](docs/TESTING.md) — Test structure, fixtures, and how to add tests
 - [`docs/TESTING_PLAN.md`](docs/TESTING_PLAN.md) — Phase-by-phase validation strategy and status
 

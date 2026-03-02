@@ -21,6 +21,7 @@ from connectomics_pipeline.validation.rules import (
     CurvatureRule,
     DirectionReversalRule,
     MaxDistanceRule,
+    MinGapRule,
     SizeDiscrepancyRule,
     create_rule,
 )
@@ -376,3 +377,72 @@ class TestBranchingLimitRuleMissingCoverage:
         rule = BranchingLimitRule(max_branches=10)
         result = rule.evaluate(close_candidate, fragment_store, graph=graph)
         assert result.decision == ConnectionStatus.ACCEPTED
+
+
+class TestMinGapRule:
+    """Tests for MinGapRule."""
+
+    def _cand(self, gap_nm: float) -> CandidateConnection:
+        return CandidateConnection(
+            candidate_id=0,
+            fragment_a=0,
+            fragment_b=1,
+            endpoint_a=np.zeros(3),
+            endpoint_b=np.array([gap_nm, 0.0, 0.0]),
+            composite_score=0.5,
+        )
+
+    def test_reject_below_min(self, fragment_store):
+        """Gap < min_gap_nm → REJECTED."""
+        rule = MinGapRule(min_gap_nm=200.0)
+        cand = self._cand(99.0)  # gap 99nm < 200nm
+        result = rule.evaluate(cand, fragment_store)
+        assert result.decision == ConnectionStatus.REJECTED
+        assert result.confidence == 1.0
+        assert "99.0" in result.reason
+
+    def test_accept_above_min(self, fragment_store):
+        """Gap ≥ min_gap_nm → ACCEPTED."""
+        rule = MinGapRule(min_gap_nm=200.0)
+        cand = self._cand(300.0)
+        result = rule.evaluate(cand, fragment_store)
+        assert result.decision == ConnectionStatus.ACCEPTED
+
+    def test_exact_min_accepted(self, fragment_store):
+        """Gap exactly equal to min_gap_nm → ACCEPTED (boundary is non-inclusive)."""
+        rule = MinGapRule(min_gap_nm=200.0)
+        cand = self._cand(200.0)
+        result = rule.evaluate(cand, fragment_store)
+        assert result.decision == ConnectionStatus.ACCEPTED
+
+    def test_disabled_when_zero(self, fragment_store):
+        """min_gap_nm=0 (default) → all candidates accepted."""
+        rule = MinGapRule(min_gap_nm=0.0)
+        for gap in [0.0, 1.0, 50.0]:
+            assert rule.evaluate(self._cand(gap), fragment_store).decision == ConnectionStatus.ACCEPTED
+
+    def test_confidence_at_min_gap(self, fragment_store):
+        """Confidence is 0.5 when gap == min_gap_nm."""
+        rule = MinGapRule(min_gap_nm=100.0, max_expected_nm=2100.0)
+        result = rule.evaluate(self._cand(100.0), fragment_store)
+        assert result.decision == ConnectionStatus.ACCEPTED
+        assert abs(result.confidence - 0.5) < 1e-6
+
+    def test_confidence_increases_with_gap(self, fragment_store):
+        """Confidence grows as gap increases beyond min_gap_nm."""
+        rule = MinGapRule(min_gap_nm=100.0, max_expected_nm=2100.0)
+        r_near = rule.evaluate(self._cand(200.0), fragment_store)
+        r_far = rule.evaluate(self._cand(1000.0), fragment_store)
+        assert r_far.confidence > r_near.confidence
+
+    def test_confidence_capped_at_one(self, fragment_store):
+        """Confidence does not exceed 1.0 even for very large gaps."""
+        rule = MinGapRule(min_gap_nm=100.0, max_expected_nm=500.0)
+        result = rule.evaluate(self._cand(10000.0), fragment_store)
+        assert result.confidence <= 1.0
+
+    def test_registry_lookup(self):
+        """MinGapRule is accessible via the rule registry."""
+        rule = create_rule("MinGapRule", {"min_gap_nm": 150.0})
+        assert isinstance(rule, MinGapRule)
+        assert rule.min_gap_nm == 150.0

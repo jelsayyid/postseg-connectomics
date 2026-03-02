@@ -280,6 +280,59 @@ class BranchingLimitRule(ValidationRule):
         )
 
 
+class MinGapRule(ValidationRule):
+    """Reject candidates whose gap distance is below a minimum threshold.
+
+    Short-gap candidates (gap < min_gap_nm) represent fragments that are
+    already touching or nearly touching in the volume.  In XPRESS white-matter
+    data, the majority of these are adjacency artifacts — different axons that
+    share a voxel boundary — rather than genuine split errors, which typically
+    have gaps of 300–2000 nm.
+
+    Setting min_gap_nm > 0 removes the bulk of short-range false positives.
+    The confidence returned for passing candidates scales linearly from 0.5
+    (at gap == min_gap_nm) to 1.0 (at gap == max_expected_nm).
+
+    Args:
+        min_gap_nm: Minimum allowed gap distance in nm.  Candidates with
+            gap < min_gap_nm are hard-rejected.  Default 0 = disabled.
+        max_expected_nm: Reference distance for confidence scaling (does not
+            affect acceptance/rejection).  Default 2000 nm.
+    """
+
+    def __init__(self, min_gap_nm: float = 0.0, max_expected_nm: float = 2000.0):
+        self.min_gap_nm = min_gap_nm
+        self.max_expected_nm = max(max_expected_nm, min_gap_nm + 1.0)
+
+    @property
+    def name(self) -> str:
+        return "MinGapRule"
+
+    def evaluate(
+        self,
+        candidate: CandidateConnection,
+        store: FragmentStore,
+        graph: Optional[FragmentGraph] = None,
+    ) -> ValidationResult:
+        dist = candidate.gap_distance
+        if dist < self.min_gap_nm:
+            return ValidationResult(
+                rule_name=self.name,
+                decision=ConnectionStatus.REJECTED,
+                confidence=1.0,
+                reason=f"Gap distance {dist:.1f} nm below min {self.min_gap_nm:.1f} nm",
+            )
+        # Confidence: 0.5 at min_gap_nm, 1.0 at max_expected_nm
+        span = self.max_expected_nm - self.min_gap_nm
+        confidence = 0.5 + 0.5 * min(1.0, (dist - self.min_gap_nm) / span)
+        return ValidationResult(
+            rule_name=self.name,
+            decision=ConnectionStatus.ACCEPTED,
+            confidence=confidence,
+            reason=f"Gap distance {dist:.1f} nm above min {self.min_gap_nm:.1f} nm",
+        )
+
+
 class CompositeScoreRule(ValidationRule):
     """Reject if composite score is below reject threshold."""
 
@@ -315,6 +368,7 @@ class CompositeScoreRule(ValidationRule):
 # Registry for rule creation from config
 RULE_REGISTRY: Dict[str, type] = {
     "MaxDistanceRule": MaxDistanceRule,
+    "MinGapRule": MinGapRule,
     "CurvatureRule": CurvatureRule,
     "DirectionReversalRule": DirectionReversalRule,
     "SizeDiscrepancyRule": SizeDiscrepancyRule,

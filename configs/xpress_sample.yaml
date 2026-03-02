@@ -82,6 +82,10 @@ validation:
   long_range_distance_nm: 1000       # aligns with candidates.long_range_threshold_nm
   long_range_accept_threshold: 0.20  # lower gate for pairs where proximity≈0 caps composite below 0.25
   rules:
+    - name: "MinGapRule"
+      params:
+        min_gap_nm: 150              # Exp 19: reject short-gap adjacency FPs; oracle pairs with gap<150nm: ~5.6%
+        max_expected_nm: 2000
     - name: "MaxDistanceRule"
       params:
         max_distance_nm: 20000       # Raised: PCA bbox fallback uses _find_best_endpoint_pair() → PCA tip-to-tip distance up to ~12000nm
