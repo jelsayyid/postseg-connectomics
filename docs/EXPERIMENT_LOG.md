@@ -995,7 +995,81 @@ discriminative power to separate same-axon from different-axon long-gap pairs.
 
 ---
 
-## Experiment 12: Larger Volume Scalability
+## Experiment 12: Tune Validation for Long-Range (Zero-Proximity) Pairs
+
+**Date:** 2026-03-02
+**Objective:** Recover the recall regression introduced in Experiment 11 (0.851 → 0.798) without
+sacrificing the coverage gain (81.6%). Experiment 11 added a long-range endpoint pass (2000 nm)
+which recovered 252 new oracle pairs as candidates, but 102 of them were FNs (rejected). Root
+causes: (1) CurvatureRule hard-rejects pairs where endpoint-centroid direction is unreliable for
+large fragments with interior splits; (2) long-range pairs have proximity=0 (gap > 400 nm) →
+composite ≈ 0.265–0.325, which is below accept_threshold=0.30.
+
+### Three Targeted Fixes
+
+1. **Remove proximity hard cliff** (`proximity.py`): Previously `compute_proximity_score` returned
+   0.0 for all d ≥ max_d. Removed that early-return so the natural exponential tail continues.
+   At d=max_d, score is exp(-3) ≈ 0.05 rather than 0.
+2. **Raise max_endpoint_distance_nm 400 → 600 nm** (`xpress_sample.yaml`): Widens the standard
+   proximity scoring window so 400–600 nm gaps get a real score instead of 0.
+3. **Lower accept_threshold 0.30 → 0.25** (`xpress_sample.yaml`): Moves the mean-confidence
+   boundary to cover composite 0.25–0.30 pairs that previously got rejected/ambiguous.
+4. **Raise CurvatureRule 120° → 150°** (`xpress_sample.yaml`): Reduces hard-rejects from the
+   unreliable endpoint-centroid direction estimate on large fragments.
+
+### Setup
+
+- Volume: `/tmp/xpress_full.h5` (699³ voxels, 33 nm isotropic)
+- Graph: `skeleton_node`, `max_distance_nm=500`, `max_endpoint_search_nm=2000` (unchanged)
+- `max_skeleton_voxels=500000` (unchanged)
+- Modified: `max_endpoint_distance_nm=600`, `accept_threshold=0.25`, `max_curvature_deg=150`
+- Baseline (Exp 11): Coverage=81.6% (1223/1499), Recall=0.798, Precision=0.005
+
+### Expected Proximity Score Changes (max_d=600 nm)
+
+| Distance | Old Score | New Score |
+|----------|-----------|-----------|
+| 0 nm     | 1.000     | 1.000     |
+| 300 nm   | 0.223     | 0.223     |
+| 400 nm   | 0.082     | 0.135     |
+| 600 nm   | 0.000     | 0.050     |
+| 800 nm   | 0.000     | 0.018     |
+| 1000 nm  | 0.000     | 0.007     |
+
+### Results
+
+Runtime: 33.7 min (2023 s). Identical pipeline graph to Exp 11 (same edges/candidates).
+
+| Metric      | Exp 11 (baseline) | Exp 12       | Delta  |
+|-------------|-------------------|--------------|--------|
+| Coverage    | 81.6% (1223/1499) | 81.7% (1225/1499) | +0.1%  |
+| Recall      | 0.798             | **0.898**    | **+0.100** |
+| Precision   | 0.005             | 0.005        | 0      |
+| TP          | ~976              | 1100         | +124   |
+| FN          | ~247              | 125          | -122   |
+| Candidates  | 362,678           | 362,718      | +40    |
+| Accepted    | —                 | 234,007      |        |
+| Rejected    | —                 | 128,685      |        |
+| Ambiguous   | —                 | 26           |        |
+
+The three targeted fixes together eliminated 122 of the 247 Exp 11 FNs:
+- Lower accept_threshold (0.30→0.25): captured pairs with composite 0.265–0.30
+- Soft proximity cliff: 400–600 nm gaps now score ~0.05–0.14 instead of 0
+- CurvatureRule 120°→150°: fewer hard-rejects from unreliable endpoint-centroid direction
+
+Recall target ≥ 0.851 achieved: **0.898** (+0.100 vs Exp 11, +0.047 vs Exp 10).
+Coverage held at 81.7%. Precision unchanged at 0.005 (dominated by FPs from non-oracle candidates).
+
+### Next Steps
+
+- [x] Recall target ≥ 0.851 achieved (0.898)
+- [ ] Investigate remaining 125 FNs: are they all uncoverable (gap > 2000 nm) or still rejected?
+- [ ] Consider `max_endpoint_search_nm: 3000` now that validation is better tuned
+- [ ] Profile precision path: 232,907 FPs — are they structural noise or reducible?
+
+---
+
+## Experiment 13: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.

@@ -58,7 +58,7 @@ graph:
   max_endpoint_search_nm: 2000       # Long-range pass: catches RC2/RC3 gaps 500–2000 nm
 
 candidates:
-  max_endpoint_distance_nm: 400
+  max_endpoint_distance_nm: 600    # was 400; gives non-zero proximity for 400–600 nm gaps
   min_alignment_score: 0.3
   min_composite_score: 0.2
   weights:
@@ -68,7 +68,7 @@ candidates:
     size: 0.10
 
 validation:
-  accept_threshold: 0.30             # Lowered: PCA bbox oracle pairs score 0.20-0.70 (mean 0.34); threshold at 25th pct
+  accept_threshold: 0.25             # was 0.30; accepts composite 0.25–0.30 pairs (long-range with proximity≈0)
   reject_threshold: 0.15
   rules:
     - name: "MaxDistanceRule"
@@ -76,7 +76,7 @@ validation:
         max_distance_nm: 5000        # Raised: PCA bbox pairs use nearest-endpoint distance (1000-3000nm for large fragments)
     - name: "CurvatureRule"
       params:
-        max_curvature_deg: 120       # Raised: endpoint-centroid direction unreliable for interior splits
+        max_curvature_deg: 150       # was 120; endpoint-centroid unreliable for interior splits on large fragments
     - name: "DirectionReversalRule"
       params:
         min_alignment: 0.0

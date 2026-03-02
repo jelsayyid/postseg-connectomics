@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from connectomics_pipeline.candidates.alignment import compute_alignment_score
@@ -18,10 +20,14 @@ class TestProximityScore:
         assert compute_proximity_score(0.0, 1000.0) == 1.0
 
     def test_max_distance(self):
-        assert compute_proximity_score(1000.0, 1000.0) == 0.0
+        # No hard cliff: exp(-3 * 1) = exp(-3) ≈ 0.0498
+        score = compute_proximity_score(1000.0, 1000.0)
+        assert abs(score - math.exp(-3.0)) < 1e-9
 
     def test_beyond_max(self):
-        assert compute_proximity_score(1500.0, 1000.0) == 0.0
+        # Decay continues past max_distance: exp(-3 * 1.5) = exp(-4.5) ≈ 0.011
+        score = compute_proximity_score(1500.0, 1000.0)
+        assert 0.0 < score < 0.1
 
     def test_mid_range(self):
         score = compute_proximity_score(500.0, 1000.0)
