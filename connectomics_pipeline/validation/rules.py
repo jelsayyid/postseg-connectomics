@@ -66,10 +66,17 @@ class MaxDistanceRule(ValidationRule):
 
 
 class CurvatureRule(ValidationRule):
-    """Reject if connecting curvature exceeds threshold."""
+    """Reject if connecting curvature exceeds threshold.
 
-    def __init__(self, max_curvature_deg: float = 90.0):
+    For long-range pairs (gap > skip_distance_nm), the endpoint-centroid direction
+    estimate is unreliable (centroid is far from the split boundary), so curvature
+    checking is skipped and ACCEPTED is returned.  Set skip_distance_nm=0 to always
+    check (default).
+    """
+
+    def __init__(self, max_curvature_deg: float = 90.0, skip_distance_nm: float = 0.0):
         self.max_curvature_rad = np.radians(max_curvature_deg)
+        self.skip_distance_nm = skip_distance_nm
 
     @property
     def name(self) -> str:
@@ -81,6 +88,17 @@ class CurvatureRule(ValidationRule):
         store: FragmentStore,
         graph: Optional[FragmentGraph] = None,
     ) -> ValidationResult:
+        # Skip curvature check for long-range pairs: endpoint-centroid direction is
+        # unreliable when the gap is large relative to the fragment extent.
+        if self.skip_distance_nm > 0 and candidate.gap_distance > self.skip_distance_nm:
+            return ValidationResult(
+                rule_name=self.name,
+                decision=ConnectionStatus.ACCEPTED,
+                confidence=0.5,
+                reason=f"Curvature check skipped: gap {candidate.gap_distance:.0f} nm "
+                f"> skip_distance {self.skip_distance_nm:.0f} nm",
+            )
+
         frag_a = store.get(candidate.fragment_a)
         frag_b = store.get(candidate.fragment_b)
         if frag_a is None or frag_b is None:

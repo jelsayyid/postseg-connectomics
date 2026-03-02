@@ -100,6 +100,12 @@ class ValidationConfig:
     accept_threshold: float = 0.8
     reject_threshold: float = 0.3
     rules: List[RuleConfig] = field(default_factory=list)
+    # Distance-conditioned accept threshold: when candidate gap > long_range_distance_nm,
+    # use this threshold instead of accept_threshold.  Allows a lower bar for long-range
+    # pairs where proximity ≈ 0 suppresses mean_confidence below the standard threshold.
+    # Set to 0 to disable (default).
+    long_range_distance_nm: float = 0.0
+    long_range_accept_threshold: float = 0.0
 
 
 @dataclass

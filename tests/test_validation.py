@@ -14,6 +14,7 @@ from connectomics_pipeline.utils.types import (
     Fragment,
 )
 from connectomics_pipeline.validation.pipeline import ValidationPipeline
+from connectomics_pipeline.validation.report import build_report
 from connectomics_pipeline.validation.rules import (
     BranchingLimitRule,
     CompositeScoreRule,
@@ -76,6 +77,18 @@ class TestCurvatureRule:
         rule = CurvatureRule(max_curvature_deg=90.0)
         result = rule.evaluate(close_candidate, fragment_store)
         assert result.decision == ConnectionStatus.ACCEPTED
+
+    def test_skip_distance_bypasses_check_for_far_candidate(self, far_candidate, fragment_store):
+        """far_candidate gap=4800nm > skip_distance_nm=1000 → curvature check skipped → ACCEPTED."""
+        rule = CurvatureRule(max_curvature_deg=1.0, skip_distance_nm=1000.0)
+        result = rule.evaluate(far_candidate, fragment_store)
+        assert result.decision == ConnectionStatus.ACCEPTED
+
+    def test_skip_distance_zero_does_not_skip(self, far_candidate, fragment_store):
+        """skip_distance_nm=0 disables skip; curvature check is performed (no skip reason)."""
+        rule = CurvatureRule(max_curvature_deg=90.0, skip_distance_nm=0.0)
+        result = rule.evaluate(far_candidate, fragment_store)
+        assert "skipped" not in result.reason
 
 
 class TestDirectionReversalRule:
@@ -161,6 +174,98 @@ class TestValidationPipeline:
         assert isinstance(pipeline.rules[0], MaxDistanceRule)
         report = pipeline.validate([close_candidate], fragment_store)
         assert report.total == 1
+
+
+class TestLongRangeAcceptThreshold:
+    """Distance-conditioned accept threshold in build_report."""
+
+    def test_long_range_pair_uses_lower_threshold(self, far_candidate, fragment_store):
+        """far_candidate gap=4800nm > 1000nm threshold: lower accept gate applies."""
+        # Without long-range threshold: mean_confidence=0.22 < 0.25 → ambiguous
+        # With long-range threshold 0.20: 0.22 >= 0.20 → accepted
+        from connectomics_pipeline.utils.types import ValidationResult
+
+        cid = far_candidate.candidate_id
+        # Simulate one rule returning confidence=0.22 (passes 0.20, fails 0.25)
+        rule_results = {
+            cid: [
+                ValidationResult(
+                    rule_name="MockRule",
+                    decision=ConnectionStatus.ACCEPTED,
+                    confidence=0.22,
+                    reason="mock",
+                )
+            ]
+        }
+
+        # reject_threshold=0.10 so 0.22 falls in the ambiguous zone (0.10, 0.25)
+        report_standard = build_report(
+            rule_results, [far_candidate], accept_threshold=0.25, reject_threshold=0.10
+        )
+        assert cid in report_standard.ambiguous  # 0.22 < 0.25 → ambiguous
+
+        report_lr = build_report(
+            rule_results,
+            [far_candidate],
+            accept_threshold=0.25,
+            reject_threshold=0.10,
+            long_range_distance_nm=1000.0,
+            long_range_accept_threshold=0.20,
+        )
+        assert cid in report_lr.accepted  # 0.22 >= 0.20 with gap=4800nm → accepted
+
+    def test_short_range_pair_uses_standard_threshold(self, close_candidate, fragment_store):
+        """close_candidate gap=50nm < 1000nm threshold: standard accept gate applies."""
+        from connectomics_pipeline.utils.types import ValidationResult
+
+        cid = close_candidate.candidate_id
+        rule_results = {
+            cid: [
+                ValidationResult(
+                    rule_name="MockRule",
+                    decision=ConnectionStatus.ACCEPTED,
+                    confidence=0.22,
+                    reason="mock",
+                )
+            ]
+        }
+
+        report_lr = build_report(
+            rule_results,
+            [close_candidate],
+            accept_threshold=0.25,
+            reject_threshold=0.10,
+            long_range_distance_nm=1000.0,
+            long_range_accept_threshold=0.20,
+        )
+        # gap=50nm < 1000nm → standard threshold 0.25 applies → 0.22 < 0.25 → ambiguous
+        assert cid in report_lr.ambiguous
+
+    def test_disabled_when_threshold_zero(self, far_candidate):
+        """long_range_distance_nm=0 disables the feature; standard threshold always applies."""
+        from connectomics_pipeline.utils.types import ValidationResult
+
+        cid = far_candidate.candidate_id
+        rule_results = {
+            cid: [
+                ValidationResult(
+                    rule_name="MockRule",
+                    decision=ConnectionStatus.ACCEPTED,
+                    confidence=0.22,
+                    reason="mock",
+                )
+            ]
+        }
+
+        report = build_report(
+            rule_results,
+            [far_candidate],
+            accept_threshold=0.25,
+            reject_threshold=0.10,
+            long_range_distance_nm=0.0,  # disabled
+            long_range_accept_threshold=0.20,
+        )
+        assert cid in report.ambiguous  # feature disabled → standard 0.25 → ambiguous
 
 
 class TestCurvatureRuleMissingCoverage:

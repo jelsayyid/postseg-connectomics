@@ -79,6 +79,8 @@ candidates:
 validation:
   accept_threshold: 0.25             # was 0.30; accepts composite 0.25–0.30 pairs (long-range with proximity≈0)
   reject_threshold: 0.15
+  long_range_distance_nm: 1000       # aligns with candidates.long_range_threshold_nm
+  long_range_accept_threshold: 0.20  # lower gate for pairs where proximity≈0 caps composite below 0.25
   rules:
     - name: "MaxDistanceRule"
       params:
@@ -86,6 +88,7 @@ validation:
     - name: "CurvatureRule"
       params:
         max_curvature_deg: 150       # was 120; endpoint-centroid unreliable for interior splits on large fragments
+        skip_distance_nm: 1000       # skip curvature check for long-range pairs (direction estimate unreliable)
     - name: "DirectionReversalRule"
       params:
         min_alignment: 0.0

@@ -59,6 +59,8 @@ class ValidationPipeline:
             candidates,
             accept_threshold=self.config.accept_threshold,
             reject_threshold=self.config.reject_threshold,
+            long_range_distance_nm=self.config.long_range_distance_nm,
+            long_range_accept_threshold=self.config.long_range_accept_threshold,
         )
 
         logger.info(

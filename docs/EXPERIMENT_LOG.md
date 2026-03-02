@@ -1202,7 +1202,99 @@ have genuinely poor TEASAR endpoint directions relative to the gap.
 
 ---
 
-## Experiment 15: Larger Volume Scalability
+## Experiment 15: Diagnose Exp 14 FNs — Long-Range Accept Threshold (Negative)
+
+**Date:** 2026-03-02
+**Objective:** Determine whether the 14 FNs added in Exp 14 (long-range pairs rejected despite
+distance-conditioned scoring) are failing on the mean_confidence threshold or being hard-rejected
+by a validation rule. If the former, `long_range_accept_threshold=0.20` in `ValidationConfig`
+should fix them.
+
+### Implementation
+
+New fields in `ValidationConfig`: `long_range_distance_nm`, `long_range_accept_threshold`.
+`build_report` checks `candidate.gap_distance > long_range_distance_nm` and applies
+`long_range_accept_threshold` in place of `accept_threshold` for those pairs.
+
+### Setup
+
+- All Exp 14 settings + `validation.long_range_distance_nm: 1000`, `long_range_accept_threshold: 0.20`
+
+### Results
+
+**Identical to Exp 14: TP=1113, FN=139, Recall=0.889.**
+
+The `long_range_accept_threshold` had zero effect because the 14 FNs are hard-rejected by
+`CurvatureRule` (line 102 of `report.py`: `has_reject=True` → REJECTED, skipping threshold
+check). The threshold gate is never reached for these candidates.
+
+Root cause confirmed: for pairs with gap > 1000 nm, `CurvatureRule` uses the endpoint-centroid
+direction to estimate junction angle — an unreliable estimate when the centroid is far from the
+split boundary. The rule hard-rejects pairs with curvature > 150°, but this angle is artefactual
+for large fragments.
+
+### Next Steps
+
+- [x] Confirmed: 14 FNs are CurvatureRule hard-rejects, not threshold failures
+- [ ] Fix: skip CurvatureRule for long-range pairs (gap > skip_distance_nm) → Experiment 16
+
+---
+
+## Experiment 16: Skip CurvatureRule for Long-Range Pairs (skip_distance_nm=1000)
+
+**Date:** 2026-03-02
+**Objective:** Fix the 14 CurvatureRule hard-rejects identified in Experiment 15 by adding a
+`skip_distance_nm` parameter to `CurvatureRule`. For pairs with gap > threshold, the rule returns
+ACCEPTED (confidence=0.5) instead of computing an unreliable endpoint-centroid curvature estimate.
+
+### Implementation
+
+New parameter `skip_distance_nm` (default 0 = always check) in `CurvatureRule.__init__`.
+When `candidate.gap_distance > skip_distance_nm`, the rule short-circuits to ACCEPTED before
+fetching fragments or computing curvature.
+
+Config: `CurvatureRule.params.skip_distance_nm: 1000` in `xpress_sample.yaml`.
+
+All other settings identical to Exp 14 (distance-conditioned weights, long_range_accept_threshold
+still present but redundant given the curvature fix).
+
+### Results
+
+Runtime: 35.4 min (2121 s). **New best.**
+
+| Metric      | Exp 12 (prev best) | Exp 14          | Exp 16               | Delta vs Exp 12 |
+|-------------|---------------------|-----------------|----------------------|-----------------|
+| Coverage    | 81.7% (1225/1499)   | 83.5% (1252/1499) | **83.5% (1252/1499)** | **+1.8%**      |
+| Recall      | 0.898               | 0.889           | **0.916**            | **+0.018**      |
+| Precision   | 0.005               | 0.005           | 0.005                | 0               |
+| TP          | 1100                | 1113            | **1147**             | +47             |
+| FN          | 125                 | 139             | **105**              | −20             |
+| Ambiguous   | 26                  | 11              | **0**                | −26             |
+| Accepted    | 234,007             | 235,785         | 251,669              |                 |
+| Rejected    | 128,685             | 133,627         | 117,754              |                 |
+
+Recall 0.898 → **0.916**: +0.018 over previous best (Exp 12). The skip eliminated the 14
+CurvatureRule hard-rejects from Exp 14 and additionally flipped 33 of the existing 125 Exp 12 FNs
+to TP (those were also artefactual curvature hard-rejects for long-range pairs that happened to be
+candidates even in Exp 12 but were not counted as "new").
+
+FN count: 139 (Exp 14) → 105 (Exp 16), a reduction of 34. The 105 remaining FNs are all pairs
+where either (a) there is no graph edge within 2000 nm, or (b) the candidate exists but scores
+below accept_threshold=0.25 even with long-range weights (alignment + continuity both weak).
+
+Ambiguous dropped to 0: all candidates now resolve to ACCEPT or REJECT, with no cases where
+mean_confidence falls between reject_threshold and accept_threshold.
+
+### Next Steps
+
+- [x] New best: Coverage=83.5%, Recall=0.916
+- [ ] Investigate 105 remaining FNs: how many are uncoverable (no edge) vs. covered-but-rejected?
+- [ ] Profile precision: 250K FPs — are there targeted rules to reduce false merges?
+- [ ] Consider whether `long_range_accept_threshold` (Exp 15 feature) is still needed or can be removed
+
+---
+
+## Experiment 17: Larger Volume Scalability
 
 **Date:** _(pending)_
 **Objective:** Test pipeline on progressively larger synthetic volumes to identify performance bottlenecks.
