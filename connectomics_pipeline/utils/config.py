@@ -126,6 +126,27 @@ class AssemblyConfig:
 
 
 @dataclass
+class MLFilterConfig:
+    """Optional ML-based false-positive filter applied after rule-based validation.
+
+    Requires a pre-trained scikit-learn model produced by
+    ``scripts/train_ml_filter.py``.  Set ``enabled: false`` (default) to run
+    the pipeline in fully rule-based mode.
+
+    Attributes:
+        enabled: Whether to apply the ML filter.  Disabled by default so the
+            pipeline works without a model file.
+        model_path: Path to the joblib artifact produced by the training script.
+        threshold: Decision threshold for the TP-class probability.
+            0.0 (default) uses the threshold stored in the model file.
+    """
+
+    enabled: bool = False
+    model_path: str = ""
+    threshold: float = 0.0
+
+
+@dataclass
 class ExportConfig:
     formats: List[str] = field(default_factory=lambda: ["graphml", "csv"])
     output_dir: str = "./output"
@@ -154,6 +175,7 @@ class PipelineConfig:
     graph: GraphConfig = field(default_factory=GraphConfig)
     candidates: CandidateConfig = field(default_factory=CandidateConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
+    ml_filter: MLFilterConfig = field(default_factory=MLFilterConfig)
     assembly: AssemblyConfig = field(default_factory=AssemblyConfig)
     export: ExportConfig = field(default_factory=ExportConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -222,6 +244,8 @@ def load_config(path: str | Path) -> PipelineConfig:
                 for r in vdata.get("rules", [])
             ],
         )
+    if "ml_filter" in raw:
+        config.ml_filter = _build_dataclass(MLFilterConfig, raw["ml_filter"])
     if "assembly" in raw:
         config.assembly = _build_dataclass(AssemblyConfig, raw["assembly"])
     if "export" in raw:

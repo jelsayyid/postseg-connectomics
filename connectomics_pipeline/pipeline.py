@@ -110,6 +110,16 @@ class Pipeline:
         validator = ValidationPipeline(self.config.validation)
         self.report = validator.validate(self.candidates, self.store, graph)
 
+        # 6.5. ML filter (optional post-validation FP reduction)
+        if self.config.ml_filter.enabled and self.config.ml_filter.model_path:
+            from connectomics_pipeline.postprocess.ml_filter import MLFilter
+
+            ml_filter = MLFilter(
+                model_path=self.config.ml_filter.model_path,
+                threshold=self.config.ml_filter.threshold,
+            )
+            self.report = ml_filter.filter_report(self.candidates, self.report)
+
         # 7. Assemble
         assembler = Assembler(self.config.assembly)
         self.structures = assembler.assemble(graph, self.candidates, self.report, self.store)

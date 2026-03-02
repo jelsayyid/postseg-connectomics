@@ -1635,6 +1635,90 @@ pure Exp 17 baseline by setting `min_gap_nm: 0` or deleting the rule entry.
 
 ---
 
+## Experiment 20: ML False-Positive Filter (GradientBoosting post-validation)
+
+**Date:** 2026-03-02
+**Objective:** Implement an ML-based FP filter to address the dominant pipeline weakness
+(Precision=0.004, 354K FPs vs 1,245 TPs).  Both rule-based approaches (Exp 18 partner limit,
+Exp 19 MinGapRule) confirmed that the FPs are indistinguishable by any single threshold.
+A gradient-boosted classifier trained on the 6 existing candidate features can learn a
+non-linear decision boundary.
+
+**Root cause recap (from Exp 18–19 analysis):**
+- 98.5% of FPs are long-range cross-axon pairs (gap 500–2000 nm) — same gap range as TPs
+- Composite score distribution overlaps heavily: TPs cluster around 0.3–0.5 (long-range weights),
+  FPs span 0.25–0.8 with many high scorers via proximity
+- No single feature or threshold cleanly separates them; interaction terms are needed
+
+**Implementation (this experiment — infrastructure only):**
+
+New files added:
+- `connectomics_pipeline/postprocess/__init__.py` — new postprocess package
+- `connectomics_pipeline/postprocess/ml_filter.py` — `MLFilter` class:
+  - Loads a joblib artifact: `{"model": sklearn_clf, "threshold": float, "features": [...]}`
+  - `filter_report(candidates, report) → report`: moves low-probability accepted candidates
+    to rejected, updates candidate `.status` to REJECTED
+  - Graceful fallback: if `predict_proba` raises, report is returned unchanged
+  - threshold=0.0 sentinel uses threshold stored in model file (chosen at training time)
+- `scripts/train_ml_filter.py` — offline training script:
+  - Loads connections.csv + fragments.csv from pipeline output
+  - Builds merge oracle from skeleton ground truth
+  - Maps candidates to oracle labels (TP=1 if label pair in oracle)
+  - Trains `GradientBoostingClassifier(n_estimators=200, max_depth=4, subsample=0.8)`
+    on accepted candidates only (ML filter is post-validation)
+  - Stratified 5-fold CV for unbiased PR-AUC estimate
+  - Finds threshold achieving recall≥0.99 from CV PR curve
+  - Saves artifact to `models/xpress_ml_filter.pkl`
+- `tests/test_ml_filter.py` — 14 unit tests (all pass)
+- `configs/xpress_sample.yaml` — added `ml_filter` section (disabled by default)
+- `connectomics_pipeline/utils/config.py` — added `MLFilterConfig` dataclass
+- `connectomics_pipeline/pipeline.py` — step 6.5 between validation and assembly
+- `pyproject.toml` — added `[ml]` optional group: `scikit-learn>=1.3, joblib>=1.3`
+
+**Status:** Infrastructure implemented and tested.  Model training is the next step.
+
+**To train the model:**
+```bash
+pip install scikit-learn
+python scripts/train_ml_filter.py \
+    --connections output/xpress_training/connections.csv \
+    --fragments   output/xpress_training/fragments.csv \
+    --skeletons   data/xpress/XPRESS_training_skels.npz \
+    --seg         /tmp/xpress_full.h5 \
+    --out         models/xpress_ml_filter.pkl \
+    --recall-target 0.99
+```
+
+**To enable in pipeline:**
+```yaml
+ml_filter:
+  enabled: true
+  model_path: "models/xpress_ml_filter.pkl"
+  threshold: 0.0   # uses saved threshold (recall≥0.99)
+```
+
+**Expected metrics (pending training run):**
+- CV PR-AUC: unknown (feature separability TBD)
+- Precision at recall≥0.99 threshold: unknown
+- TP count: ≥1,234 (recall≥0.99 of 1,245 baseline)
+- FP count: TBD (target: < 10K, vs 354K baseline)
+
+**Tests:** 428 total, 0 failures (was 414; +14 new tests for MLFilter)
+
+**Observations:**
+The implementation is intentionally conservative: the ML filter is a post-validation
+add-on that does not replace any rule-based logic.  The pipeline runs identically with
+`ml_filter.enabled: false` (the default).  The GradientBoostingClassifier was chosen
+over logistic regression because the TP/FP boundary is non-linear (interaction of gap,
+alignment, and continuity determines genuine splits vs cross-axon pairs).
+
+**Next Step:** Run `train_ml_filter.py` and evaluate precision/recall on the XPRESS
+training set.  If CV PR-AUC > 0.5, the classifier is learning a real signal.  If
+PR-AUC ≈ 0.004 (random), the features are insufficient and alternative approaches
+(e.g., graph-level features, fragment neighborhood context) would be needed.
+
+---
+
 _Template for new experiments:_
 
 ```markdown
