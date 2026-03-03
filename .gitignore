@@ -9,3 +9,5 @@ test_data/
 output/
 *.log
 data/
+models/
+*.pkl

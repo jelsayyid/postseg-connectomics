@@ -55,7 +55,7 @@ fragments:
 graph:
   construction_method: "skeleton_node"  # All skeleton nodes catch interior axon splits
   max_distance_nm: 500               # Endpoint-to-endpoint search radius; split boundaries are ~33nm apart
-  max_endpoint_search_nm: 2000       # Long-range pass: catches RC2/RC3 gaps 500–2000 nm
+  max_endpoint_search_nm: 2000       # Exp 21 (3000nm) NEGATIVE: doubles FPs (814K), ML filter fails at recall≥0.99; reverted
 
 candidates:
   max_endpoint_distance_nm: 600    # was 400; gives non-zero proximity for 400–600 nm gaps
@@ -123,7 +123,7 @@ assembly:
   max_partners_per_fragment: 0
 
 export:
-  formats: ["graphml", "csv"]        # precomputed_seg disabled: 699^3 volume too large to write in-process
+  formats: ["csv"]                   # graphml disabled: 815K edges at 3000nm → OOM during XML serialization
   output_dir: "./output/xpress_training"
   include_rejected: false
   include_ambiguous: true

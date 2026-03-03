@@ -1736,6 +1736,85 @@ generalization would require evaluating on the XPRESS held-out test volume.
 
 ---
 
+## Experiment 21: 3000nm Radius Re-attempt + ML Filter (Negative)
+
+**Date:** 2026-03-02
+**Objective:** Re-test `max_endpoint_search_nm: 3000` now that distance-conditioned scoring
+(Exp 14), CurvatureRule skip (Exp 16), raised SizeDiscrepancy/MaxDistance limits (Exp 17),
+and ML filter (Exp 20) are all in place.  Exp 13 (3000nm without any ML) showed regression;
+hypothesis was that the ML filter might recover precision without sacrificing recall.
+
+**Setup:**
+- `max_endpoint_search_nm: 2000 → 3000` (single change from Exp 17 baseline)
+- Export formats: `["csv"]` only — GraphML disabled (first 3000nm run OOM-killed at 815K-edge
+  XML serialization; fix retained for all future runs)
+- ML filter retrained on 3000nm `connections.csv`
+
+**Pipeline output (3000nm run):**
+
+| Stage | Count |
+|-------|-------|
+| Fragments | 11,208 |
+| Graph nodes | 11,208 |
+| Graph edges | 993,917 (855,691 from long-range endpoint pass at 3000nm) |
+| Candidates | 837,450 |
+| Accepted | 815,709 |
+| Rejected | 21,741 |
+
+**ML filter training results (3000nm connections):**
+
+| Metric | 2000nm (Exp 20) | 3000nm (Exp 21) |
+|--------|-----------------|-----------------|
+| Accepted total | 350,213 | 815,709 |
+| TP (accepted) | 1,209 | 1,261 (+52) |
+| FP (accepted) | 349,004 | 814,448 (+133%) |
+| FP:TP ratio | 1:288 | 1:645 |
+| CV PR-AUC | 0.098 | 0.071 |
+| Threshold for recall≥0.99 | 0.0004 | 0.0000 (fails) |
+| FP reduction at recall≥0.99 | 47.0% | 0.0% |
+
+**Precision-Recall tradeoff (3000nm ML filter at multiple thresholds):**
+
+| Threshold | TP | FP | Precision | Recall | FP Reduction |
+|-----------|----|----|-----------|--------|--------------|
+| 0.0000 (saved) | 1,261 | 814,448 | 0.0015 | 1.0000 | 0.0% |
+| 0.0001 | 1,240 | 583,637 | 0.0021 | 0.9833 | 28.3% |
+| 0.0005 | 1,182 | 164,059 | 0.0072 | 0.9374 | 79.9% |
+| 0.0010 | 1,133 | 93,178 | 0.0120 | 0.8985 | 88.6% |
+| 0.0050 | 945 | 25,257 | 0.0361 | 0.7494 | 96.9% |
+| 0.0100 | 870 | 12,903 | 0.0632 | 0.6899 | 98.4% |
+| 0.0500 | 661 | 4,615 | 0.1253 | 0.5242 | 99.4% |
+| 0.1000 | 514 | 1,972 | 0.2068 | 0.4076 | 99.8% |
+| 0.2000 | 332 | 520 | 0.3897 | 0.2633 | 99.9% |
+
+**Comparison with 2000nm + ML (Exp 20) at matched recall levels:**
+
+| Use case | 2000nm recall | 2000nm FP | 3000nm recall | 3000nm FP |
+|----------|---------------|-----------|---------------|-----------|
+| Max recall (≥0.99) | 0.961 (t=0.0004) | 184,811 | — (not achievable) | 814,448 |
+| High recall (≈0.93) | 0.932 (t=0.001) | 91,185 | 0.899 (t=0.001) | 93,178 |
+| Balanced (≈0.85) | 0.852 (t=0.005) | 28,178 | 0.749 (t=0.005) | 25,257 |
+
+**Observations:**
+- 3000nm adds +52 TPs (1,261 vs 1,209) but more than doubles FPs (814K vs 349K)
+- The additional long-range candidates at 3000nm have very similar score distributions to TPs,
+  making them impossible for the ML model to filter without sacrificing recall
+- CV PR-AUC drops from 0.098 (2000nm) to 0.071 (3000nm) — the extra FPs dilute the signal
+- The ML model cannot achieve recall≥0.99 while filtering any FPs (threshold=0.0000)
+- At matched recall levels (~0.90), both radii have similar absolute FP counts — but 3000nm
+  sacrifices +52 TPs to get there; 2000nm at t=0.0004 gives better absolute performance
+- OOM fix (CSV-only export) retained permanently — applicable to any run with >500K candidates
+
+**Conclusion:** NEGATIVE. Revert to 2000nm. The hypothesis (ML filter rescues 3000nm) is
+disproven. The additional candidates at 3000nm are structurally indistinguishable from genuine
+splits by any learned feature combination. The cost (doubled FPs, failed high-recall filter) far
+outweighs the benefit (+52 TPs, ~3.5% coverage improvement at best).
+
+**Action:** Reverted `max_endpoint_search_nm: 3000 → 2000`.  Re-running 2000nm pipeline to
+restore `connections.csv` and retrain ML filter on 2000nm data (restoring Exp 20 model).
+
+---
+
 _Template for new experiments:_
 
 ```markdown
