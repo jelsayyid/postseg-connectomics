@@ -43,6 +43,20 @@ Full 699³ voxel volume, 33 nm isotropic resolution, myelinated cortical axons. 
 
 The held-out validation volume was never seen during development; the ~9% recall gap from training to validation is primarily attributable to a gap-filter rule (`MinGapRule`) applied in the current config that rejects 37 genuine short-gap (< 150 nm) splits on the training volume. Without it, training recall is 0.994 and validation recall is approximately 0.99 (only CurvatureRule false negatives remain). Low precision on training reflects the open challenge of discriminating same-axon from different-axon long-range pairs at scale.
 
+## What the Pipeline Sees
+
+Each image below is a 2D cross-section of the segmentation volume centered on a candidate pair. **Fragment A** (red) and **Fragment B** (blue) are the two segments the pipeline is evaluating for a potential merge. Surrounding context fragments are gray; background is black. The white arrow shows the proposed connection direction. Panels are sampled from the XPRESS training volume (699³ voxels, 33 nm isotropic).
+
+**High-confidence accepted** — the pipeline's strongest merge proposals (highest composite score among accepted candidates):
+
+![High-confidence accepted candidate pairs](docs/images/candidate_showcase_accepted.png)
+
+**Borderline rejected** — candidates the pipeline declined but which scored highest among rejections (most informative failure mode):
+
+![Borderline rejected candidate pairs](docs/images/candidate_showcase_rejected.png)
+
+A full per-candidate PDF report (cover page + scored panel grid across all four decision categories) can be regenerated at any time — see [Visual Validation Report](#visual-validation-report) below.
+
 ## Key Features
 
 ### Graph Construction (`skeleton_node` method)
