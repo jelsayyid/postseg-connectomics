@@ -1838,3 +1838,70 @@ _Template for new experiments:_
 **Action Items:**
 - [ ] Follow-up tasks
 ```
+
+---
+
+## Experiment 22: FN Diagnosis — Rule Attribution for False Negatives
+
+**Date:** 2026-03-03
+**Objective:** Identify which validation rule causes each false-negative rejection in the
+current pipeline configuration, to determine whether any threshold tweak can recover FNs
+without broad regression.
+
+**Method:** CSV-based candidate-level evaluation using `label_id` from `fragments.csv`
+(matches pipeline's internal assignment from the segmentation volume).  For each rejected
+candidate whose (label_a, label_b) pair appears in the merge oracle, each rule's acceptance
+criterion from the YAML config is applied and the first blocker is reported.
+
+**Important distinction — two configs:**
+
+| Config | MinGapRule | Recall | FN candidates | Coverage |
+|--------|-----------|--------|---------------|---------|
+| Exp 17 (no MinGapRule) | absent | **0.994** | **6** | **83.5% (1252/1499)** |
+| Current YAML | MinGapRule(150nm) | **0.966** | **43** | ~75.9% (1138/1499) |
+
+MinGapRule was added in Exp 19 and retained despite the "negative" recall verdict. It causes
+37 additional FN candidates and uncovers ~114 oracle pairs whose only candidates have gap < 150nm.
+
+**FN breakdown (current config, 43 FN candidates):**
+
+| Rule | Count | Gap range | Notes |
+|------|-------|-----------|-------|
+| MinGapRule(min_gap_nm=150) | 37 | 33–148 nm | True genuine splits with tiny gaps; high composite (0.51–0.86) |
+| CurvatureRule | 4 | 209–987 nm | Gap < skip_distance_nm=1000nm; direction check fires |
+| SizeDiscrepancyRule | 2 | 2189, 6683 nm | Stub fragment (100–200 vox) vs large trunk (~600K vox); cube-root 15.4–18.2 |
+
+**Exp 17 FNs (6, without MinGapRule):**
+
+```
+gap= 209nm  comp=0.580  cube_r= 1.06  CurvatureRule  frags 1929(369K)↔1931(437K)
+gap= 462nm  comp=0.348  cube_r= 1.40  CurvatureRule  frags 2897(292K)↔3150(107K)
+gap= 976nm  comp=0.345  cube_r= 4.72  CurvatureRule  frags 2938(1K)↔3196(106K)
+gap= 987nm  comp=0.452  cube_r= 1.09  CurvatureRule  frags 7194(354K)↔7506(272K)
+gap=2189nm  comp=0.570  cube_r=18.21  SizeDiscrep    frags 1855(604K)↔4130(100 vox)
+gap=6683nm  comp=0.403  cube_r=15.38  SizeDiscrep    frags 1832(728K)↔9270(200 vox)
+```
+
+**Analysis per group:**
+
+*MinGapRule (37 FNs):* Genuine oracle merges with gap 33–148nm, high composite (0.51–0.86),
+normal size ratios. MinGapRule targets adjacency FPs (different axons sharing a voxel boundary)
+but incorrectly rejects genuine short-gap splits.  Recoverable by setting `min_gap_nm: 0`
+(restores Exp 17 Recall=0.994, Coverage=83.5%).
+
+*CurvatureRule (4 FNs):* Composite 0.35–0.58; all have gap < 1000nm so curvature IS checked.
+Fragment 2938 has only 1,004 voxels — endpoint direction estimate is unreliable for tiny stubs.
+Raising max_curvature_deg or lowering skip_distance_nm risks broad FPs. **Hard cases.**
+
+*SizeDiscrepancyRule (2 FNs):* Tiny stub fragments (100–200 vox) vs large trunks (~600K–728K
+vox); cube-root ratio 15.4 and 18.2.  Both are genuine oracle merges.  Raising `max_radius_ratio`
+to 20.0 would recover these two. **Low risk, targeted fix; attempt as Exp 23.**
+
+**Recommendations (priority order):**
+
+1. Restore Recall=0.994: set `min_gap_nm: 0` — recovers 37 FN candidates + 114 oracle pairs.
+2. Raise `max_radius_ratio: 15.0 → 20.0` — recovers 2 SizeDiscrepancy FNs.  Low risk.
+3. CurvatureRule FNs: unrecoverable without disabling the rule broadly.
+
+**Tests:** 428 total, 0 failures (diagnostic only — no code changes).
+

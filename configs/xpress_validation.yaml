@@ -1,0 +1,106 @@
+# XPRESS Challenge — Validation volume evaluation (Experiment 23)
+# Same config as xpress_sample.yaml (Exp 17 settings) applied to held-out validation volume.
+# Validation data: baseline_seg_validation.h5 (699×699×699 vox, offset (252,252,252) in full volume)
+# GT skeletons: XPRESS_validation_skels.npz (203 oracle merge pairs)
+#
+# NOTE: seg_offset_voxels=(252,252,252) is set in the evaluation script, not in this yaml.
+# The pipeline processes the segmentation in its local (0,0,0) coordinate system;
+# the offset is only needed when mapping skeleton positions to oracle label IDs.
+
+pipeline:
+  name: "xpress-validation"
+  version: "0.1.0"
+  seed: 42
+
+input:
+  format: "hdf5"
+  path: "/tmp/xpress_validation.h5"
+  dataset: "labels"
+  resolution: [33, 33, 33]
+  chunk_size: [300, 300, 300]
+  chunk_overlap: [16, 16, 16]
+
+fragments:
+  min_voxel_count: 100
+  extract_skeletons: true
+  extract_meshes: false
+  skeleton_method: "teasar"
+  skeleton_params:
+    invalidation_d0: 10
+    dust_threshold: 100
+  max_skeleton_voxels: 500000
+
+graph:
+  construction_method: "skeleton_node"
+  max_distance_nm: 500
+  max_endpoint_search_nm: 2000
+
+candidates:
+  max_endpoint_distance_nm: 600
+  min_alignment_score: 0.3
+  min_composite_score: 0.2
+  weights:
+    proximity: 0.35
+    alignment: 0.30
+    continuity: 0.25
+    size: 0.10
+  long_range_threshold_nm: 1000
+  long_range_weights:
+    proximity: 0.00
+    alignment: 0.45
+    continuity: 0.40
+    size: 0.15
+
+validation:
+  accept_threshold: 0.25
+  reject_threshold: 0.15
+  long_range_distance_nm: 1000
+  long_range_accept_threshold: 0.20
+  rules:
+    - name: "MinGapRule"
+      params:
+        min_gap_nm: 150
+        max_expected_nm: 2000
+    - name: "MaxDistanceRule"
+      params:
+        max_distance_nm: 20000
+    - name: "CurvatureRule"
+      params:
+        max_curvature_deg: 150
+        skip_distance_nm: 1000
+    - name: "DirectionReversalRule"
+      params:
+        min_alignment: 0.0
+    - name: "SizeDiscrepancyRule"
+      params:
+        max_radius_ratio: 15.0
+    - name: "BranchingLimitRule"
+      params:
+        max_branches: 5000
+    - name: "CompositeScoreRule"
+      params:
+        reject_threshold: 0.15
+
+ml_filter:
+  enabled: false
+  model_path: "models/xpress_ml_filter.pkl"
+  threshold: 0.0
+
+assembly:
+  min_structure_fragments: 2
+  flag_ambiguous: true
+  detect_cycles: true
+  max_branch_order: 5
+  max_partners_per_fragment: 0
+
+export:
+  formats: ["csv"]
+  output_dir: "./output/xpress_validation"
+  include_rejected: false
+  include_ambiguous: true
+  evaluate_ground_truth: false
+
+logging:
+  level: "INFO"
+  file: "pipeline_validation.log"
+  console: true
