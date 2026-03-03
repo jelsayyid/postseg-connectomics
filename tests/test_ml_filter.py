@@ -15,7 +15,6 @@ from connectomics_pipeline.utils.types import (
     ValidationReport,
 )
 
-
 # ---------------------------------------------------------------------------
 # Picklable fake models (MagicMock is not picklable by joblib)
 # ---------------------------------------------------------------------------
@@ -92,9 +91,14 @@ def _make_filter(model: object, threshold: float = 0.5) -> MLFilter:
         "model": model,
         "threshold": threshold,
         "features": [
-            "gap_distance", "proximity_score", "alignment_score",
-            "continuity_score", "size_score", "composite_score",
-            "degree_a", "degree_b",
+            "gap_distance",
+            "proximity_score",
+            "alignment_score",
+            "continuity_score",
+            "size_score",
+            "composite_score",
+            "degree_a",
+            "degree_b",
         ],
     }
     with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
@@ -115,14 +119,16 @@ class TestExtractFeatures:
         assert result.shape == (0, 8)
 
     def test_single_candidate_shape(self):
-        c = _make_cand(1, gap=400.0, proximity=0.3, alignment=0.7,
-                       continuity=0.6, size=0.4, composite=0.5)
+        c = _make_cand(
+            1, gap=400.0, proximity=0.3, alignment=0.7, continuity=0.6, size=0.4, composite=0.5
+        )
         X = _extract_features([c])
         assert X.shape == (1, 8)
 
     def test_feature_values_correct(self):
-        c = _make_cand(1, gap=123.0, proximity=0.1, alignment=0.2,
-                       continuity=0.3, size=0.4, composite=0.5)
+        c = _make_cand(
+            1, gap=123.0, proximity=0.1, alignment=0.2, continuity=0.3, size=0.4, composite=0.5
+        )
         X = _extract_features([c])
         # gap_distance is distance between ep_a and ep_b
         assert abs(X[0, 0] - 123.0) < 1e-4

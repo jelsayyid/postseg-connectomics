@@ -37,7 +37,11 @@ from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 
-from connectomics_pipeline.utils.types import CandidateConnection, ConnectionStatus, ValidationReport
+from connectomics_pipeline.utils.types import (
+    CandidateConnection,
+    ConnectionStatus,
+    ValidationReport,
+)
 
 if TYPE_CHECKING:
     pass
@@ -65,6 +69,7 @@ _FEATURES = [
 def _compute_degrees(candidates: List[CandidateConnection]) -> dict:
     """Count accepted connections per fragment across the candidate list."""
     from collections import defaultdict
+
     degrees: dict = defaultdict(int)
     for c in candidates:
         degrees[c.fragment_a] += 1
@@ -87,17 +92,23 @@ def _extract_features(
         degrees = {}
     rows = []
     for c in candidates:
-        rows.append([
-            c.gap_distance,
-            c.proximity_score,
-            c.alignment_score,
-            c.continuity_score,
-            c.size_score,
-            c.composite_score,
-            float(degrees.get(c.fragment_a, 0)),
-            float(degrees.get(c.fragment_b, 0)),
-        ])
-    return np.array(rows, dtype=np.float32) if rows else np.empty((0, len(_FEATURES)), dtype=np.float32)
+        rows.append(
+            [
+                c.gap_distance,
+                c.proximity_score,
+                c.alignment_score,
+                c.continuity_score,
+                c.size_score,
+                c.composite_score,
+                float(degrees.get(c.fragment_a, 0)),
+                float(degrees.get(c.fragment_b, 0)),
+            ]
+        )
+    return (
+        np.array(rows, dtype=np.float32)
+        if rows
+        else np.empty((0, len(_FEATURES)), dtype=np.float32)
+    )
 
 
 class MLFilter:
@@ -204,8 +215,7 @@ class MLFilter:
 
         n_removed = len(ml_rejected)
         logger.info(
-            "MLFilter: removed %d / %d accepted candidates (threshold=%.4f); "
-            "%d remain accepted",
+            "MLFilter: removed %d / %d accepted candidates (threshold=%.4f); " "%d remain accepted",
             n_removed,
             len(accepted_cands),
             self.threshold,

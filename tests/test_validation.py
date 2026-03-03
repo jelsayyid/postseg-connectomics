@@ -419,7 +419,9 @@ class TestMinGapRule:
         """min_gap_nm=0 (default) → all candidates accepted."""
         rule = MinGapRule(min_gap_nm=0.0)
         for gap in [0.0, 1.0, 50.0]:
-            assert rule.evaluate(self._cand(gap), fragment_store).decision == ConnectionStatus.ACCEPTED
+            assert (
+                rule.evaluate(self._cand(gap), fragment_store).decision == ConnectionStatus.ACCEPTED
+            )
 
     def test_confidence_at_min_gap(self, fragment_store):
         """Confidence is 0.5 when gap == min_gap_nm."""

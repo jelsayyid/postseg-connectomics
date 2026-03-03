@@ -285,7 +285,9 @@ class TestPartnerLimit:
             fragment_a=0,
             fragment_b=2,
             endpoint_a=sample_fragments[0].endpoints[1],
-            endpoint_b=sample_fragments[2].endpoints[0] if len(sample_fragments) > 2 else np.zeros(3),
+            endpoint_b=(
+                sample_fragments[2].endpoints[0] if len(sample_fragments) > 2 else np.zeros(3)
+            ),
             composite_score=0.5,
             status=ConnectionStatus.ACCEPTED,
         )
