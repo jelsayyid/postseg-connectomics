@@ -1,0 +1,97 @@
+Understanding the brain at the level of individual synaptic connections requires
+mapping the complete wiring diagram --- the \emph{connectome} --- of a neural
+circuit. Modern connectomics workflows acquire volumetric image stacks of brain
+tissue using electron microscopy (EM) or X-ray nano-holotomography (XNH), then
+apply automated deep-learning segmenters to delineate individual neurons within
+those volumes~\cite{januszewski2018high,lin2021pytorch}. This process has enabled
+landmark reconstructions at increasingly large scales, culminating in full-cortex
+and whole-brain datasets containing tens of thousands of neurons and hundreds of
+millions of synapses~\cite{microns2025}.
+
+Despite rapid progress in segmentation quality, automated segmenters remain
+imperfect. They produce two types of errors: \emph{merge errors}, where
+two distinct neurons are incorrectly fused into one segment, and \emph{split errors},
+where a single neuron is fragmented into multiple disconnected pieces. Split
+errors are particularly prevalent in elongated structures such as axons, where
+slight imaging artifacts, staining variation, or object boundaries that are
+difficult to resolve cause segmenters to break a continuous process into two or
+more isolated fragments. At the scale of a full cortex reconstruction, a single
+well-segmented volume may contain hundreds of thousands of split errors that must
+be identified and corrected before the connectivity graph is reliable
+enough for downstream neuroscience~\cite{plaza2018analyzing}.
+
+Manual proofreading --- having human experts identify and repair segmentation
+errors --- is the bottleneck in every large-scale connectomics project. A skilled
+proofreader can correct perhaps a few hundred merge decisions per hour; a modern
+dataset may require millions. Automated proofreading tools that propose high-recall
+merge corrections, leaving only ambiguous cases for human review, are therefore
+essential infrastructure for the field~\cite{dorkenwald2022cave}.
+
+\section*{The Problem This Work Addresses}
+
+This project targets \textbf{split detection and correction proposal} in
+post-segmentation connectomics pipelines. Given a voxel-wise segmentation
+volume (the output of an automated segmenter), the pipeline must:
+
+\begin{enumerate}
+  \item Identify all pairs of fragments that are likely pieces of the same neuron
+        (\emph{split candidates}).
+  \item Score and filter these pairs conservatively, accepting only those for which
+        evidence strongly supports a merge.
+  \item Explicitly flag uncertain pairs rather than forcing them to a binary decision.
+  \item Produce outputs in formats consumable by downstream proofreading tools.
+\end{enumerate}
+
+The domain of primary interest is \textbf{myelinated axons in mouse white matter},
+as captured by XNH imaging --- the XPRESS challenge dataset~\cite{xpress2023}.
+Myelinated axons are predominantly tubular structures with consistent cross-sectional
+geometry, making geometric alignment and curvature features informative proxies
+for merge plausibility. This is in contrast to dendritic arbors, where branching
+angles can be nearly orthogonal and geometric features are less discriminative.
+
+\section*{Contributions}
+
+The main contributions of this work are:
+
+\begin{enumerate}
+  \item \textbf{A complete, modular post-segmentation pipeline} implemented in
+        Python, with YAML-configurable parameters, six processing stages, and
+        multi-format export. The pipeline is fully open-source and validated by
+        428 automated unit and integration tests.
+
+  \item \textbf{The skeleton-node graph construction method}, which indexes every
+        node from every TEASAR skeleton in a single KD-tree and queries the full
+        node set for proximity-based edge creation. This exposes interior splits
+        along long axons that an endpoint-only graph cannot represent, producing
+        a 47-percentage-point improvement in oracle coverage on XPRESS (from 23\%
+        to 79.8\% in a single change).
+
+  \item \textbf{Distance-conditioned composite scoring}, which switches the
+        candidate score weighting from a proximity-dominated formula to a
+        proximity-free, alignment-continuity-weighted formula for long-range
+        pairs (gap $> 1000$~nm). This prevents the suppression of genuine long-range
+        splits whose proximity score decays to near zero despite strong directional
+        alignment.
+
+  \item \textbf{A three-outcome validation model} (ACCEPT / REJECT / AMBIGUOUS)
+        with seven composable, configurable rules. The AMBIGUOUS outcome
+        explicitly preserves uncertainty rather than forcing binary decisions,
+        making the pipeline suitable for integration with human-in-the-loop
+        proofreading workflows.
+
+  \item \textbf{Quantitative evaluation on two benchmarks}: CREMI (F1 = 0.952,
+        Precision = 1.000) and XPRESS (Recall = 0.994 on training, Recall = 0.885
+        on a fully held-out validation volume), with 23 documented experiments
+        tracing the development of each improvement.
+\end{enumerate}
+
+\section*{Report Organization}
+
+Chapter~\ref{ch:background} provides background on connectomics imaging, automated
+segmentation, and the XPRESS challenge. Chapter~\ref{ch:methodology} describes
+the pipeline design and all algorithmic components in detail.
+Chapter~\ref{ch:results} presents quantitative results across all experiments.
+Chapter~\ref{ch:relatedwork} surveys related proofreading and graph-construction
+approaches. Chapter~\ref{ch:conclusion} summarizes the main findings and
+challenges, and Chapter~\ref{ch:futurework} outlines the plan for the remainder
+of the semester.

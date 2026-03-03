@@ -1,0 +1,252 @@
+\section{Design Philosophy}
+
+The pipeline is built around three principles. First, \textbf{conservative
+correctness}: a merge that should not happen is worse than a merge proposal
+that is correctly rejected, so the pipeline never forces an ambiguous decision
+--- uncertainty is output explicitly as a third outcome (AMBIGUOUS). Second,
+\textbf{modularity}: each stage can be run independently, with intermediate
+results saved to disk and re-used across parameter sweeps. Third,
+\textbf{reproducibility}: all parameters are controlled through a single YAML
+configuration file, and random seeds are fixed, so the same config always
+produces the same output.
+
+The six-stage pipeline is shown in Figure~\ref{fig:pipeline}. The remainder
+of this chapter describes each stage.
+
+\begin{figure}[H]
+\centering
+\begin{verbatim}
+ Segmentation Volume
+        |
+        v
+ [1] Fragment Extraction   -- TEASAR skeletonization, stitching
+        |
+        v
+ [2] Graph Construction    -- skeleton-node KD-tree + endpoint pass
+        |
+        v
+ [3] Candidate Generation  -- composite scoring, distance-conditioned weights
+        |
+        v
+ [4] Conservative Validation -- 7 rules, 3-outcome (ACCEPT/REJECT/AMBIGUOUS)
+        |
+        v
+ [5] Assembly              -- connected components, topology checks
+        |
+        v
+ [6] Export                -- CSV, GraphML, SWC, Neuroglancer annotations
+\end{verbatim}
+\caption{Overview of the six-stage post-segmentation pipeline.}
+\label{fig:pipeline}
+\end{figure}
+
+\section{Stage 1: Fragment Extraction}
+
+\paragraph{Connected component extraction.}
+The input is a voxel-wise label volume (HDF5 format). Because full volumes
+may exceed available memory ($699^3$ voxels at 64 bits $\approx$ 2.7~GB), the
+pipeline reads the volume in configurable chunks with overlap, extracts
+connected components per chunk, and stitches cross-boundary fragments using
+label agreement in overlap zones.
+
+Each resulting \texttt{Fragment} object stores its integer label identifier,
+voxel count, axis-aligned bounding box, centroid (in physical nm coordinates),
+a list of endpoint coordinates, an optional TEASAR skeleton, and a boundary flag
+indicating whether the fragment touches a chunk boundary.
+
+\paragraph{Skeletonization.}
+Fragments above a minimum voxel threshold (100 voxels by default, configurable)
+are skeletonized using the \texttt{kimimaro} TEASAR implementation. The TEASAR
+invalidation radius parameter \texttt{invalidation\_d0} controls skeleton
+branch density; we use \texttt{invalidation\_d0 = 10} for XPRESS.
+
+For very large fragments (above a configurable \texttt{max\_skeleton\_voxels}
+threshold, set to 500{,}000 voxels for XPRESS), TEASAR runtime scales
+non-linearly and can require $>10$ minutes per fragment. For these, the pipeline
+falls back to a PCA-based bounding-box endpoint: the fragment's bounding box
+is projected onto its first principal component, and the two extreme corners
+of the projected box are used as pseudo-endpoints.
+
+\paragraph{Fragment stitching.}
+The stitching module uses a union-find data structure to merge fragment IDs
+across chunk boundaries, relabeling fragments globally after processing all
+chunks. On the XPRESS training volume, 16{,}187 per-chunk fragments stitch
+into 12{,}935 global fragments.
+
+\section{Stage 2: Graph Construction}
+
+Graph construction determines which fragment pairs are considered as merge
+candidates. This stage had the single largest impact on recall in our
+experiments.
+
+\paragraph{Endpoint graph (baseline).}
+The naive approach indexes only TEASAR degree-1 endpoints (skeleton leaf nodes)
+in a KD-tree and connects pairs within a distance threshold
+(\texttt{max\_distance\_nm}). This correctly handles splits at the tips of axons
+but cannot represent splits in the interior of long axons, where the split point
+is surrounded by skeleton interior nodes, not endpoints.
+
+\paragraph{Skeleton-node graph (proposed method).}
+The \texttt{skeleton\_node} construction method indexes \emph{every} skeleton
+node --- leaf, branch, and interior --- from every fragment in a single global
+KD-tree. All node-to-node pairs within \texttt{max\_distance\_nm} receive an
+edge. This exposes interior splits at any point along an axon.
+
+On XPRESS, switching from the endpoint graph (at 300-voxel crop resolution) to
+the skeleton-node graph (at full-volume 699-voxel resolution) raised oracle
+coverage from 23\% to 79.8\% --- a 56.8-percentage-point gain in one change.
+
+\paragraph{Long-range endpoint pass.}
+A supplemental second pass queries only degree-1 endpoints at a larger radius
+(\texttt{max\_endpoint\_search\_nm} = 2000~nm) using the same KD-tree.
+This adds edges for genuine segmentation gaps that are wider than the skeleton-node
+radius (500~nm), targeting true splits where the two fragments' interior skeleton
+nodes are not close but their free endpoints point toward each other across the gap.
+
+\section{Stage 3: Candidate Generation and Scoring}
+
+\paragraph{Composite score.}
+For each graph edge $(A, B)$, the candidate generator identifies the closest
+endpoint pair using the skeleton node positions, then computes four normalized
+sub-scores:
+
+\begin{description}
+  \item[Proximity score] $s_\text{prox} = \exp(-d / d_\text{ref})$, where $d$
+        is the gap distance and $d_\text{ref}$ is a configurable reference
+        distance (600~nm for XPRESS). Decays to zero as distance grows.
+
+  \item[Alignment score] $s_\text{align} = (\hat{t}_A \cdot \hat{t}_B + 1) / 2$,
+        where $\hat{t}_A$ and $\hat{t}_B$ are the unit tangent vectors at the
+        endpoints of fragments $A$ and $B$, estimated from the local skeleton
+        geometry. A score of 1.0 means the fragments point directly toward each
+        other; 0.0 means they are antiparallel.
+
+  \item[Continuity score] $s_\text{cont} = \max(0,\; 1 - \kappa / \kappa_\text{max})$,
+        where $\kappa$ is the angular bend at the proposed junction and
+        $\kappa_\text{max} = 180°$. Penalizes sharp turns.
+
+  \item[Size score] $s_\text{size} = \min(r_A, r_B) / \max(r_A, r_B)$, where
+        $r_A, r_B$ are the estimated radii (cube-root of voxel count). Penalizes
+        large radius discrepancies.
+\end{description}
+
+The composite score is a weighted sum:
+\begin{equation}
+  s_\text{comp} = w_\text{prox} s_\text{prox} + w_\text{align} s_\text{align}
+                + w_\text{cont} s_\text{cont} + w_\text{size} s_\text{size}
+\end{equation}
+with default weights $(0.35, 0.30, 0.25, 0.10)$ for the four components.
+
+\paragraph{Distance-conditioned scoring.}
+For long-range pairs (gap $> \texttt{long\_range\_threshold\_nm}$ = 1000~nm),
+the proximity score decays below 0.05, which dominates the composite and
+suppresses the score even when alignment and continuity are strong. To address
+this, the pipeline switches to a proximity-free weight vector
+$(0.00, 0.45, 0.40, 0.15)$ for long-range pairs, emphasizing alignment and
+continuity. This was introduced in Experiment~14 and raised recall from
+0.898 to 0.889 on the short-range subset and from a much lower baseline on
+the long-range subset.
+
+\section{Stage 4: Conservative Validation}
+
+\paragraph{Three-outcome model.}
+Every candidate is assigned one of three outcomes: ACCEPT (high confidence the
+merge is correct), REJECT (high confidence it is not), or AMBIGUOUS (insufficient
+evidence). Ambiguous candidates are preserved in the output and excluded from
+precision/recall computation --- they represent explicit uncertainty, not errors.
+
+\paragraph{Validation rules.}
+Seven rules are applied in sequence; any REJECT terminates evaluation of
+that candidate:
+
+\begin{enumerate}
+  \item \textbf{MinGapRule}: Rejects candidates with gap $< \texttt{min\_gap\_nm}$.
+        Intended to filter adjacency false positives (different axons sharing a
+        voxel boundary) but also rejects genuine short-gap splits (Experiment~22
+        shows this rule causes 37 false negatives in the current config).
+
+  \item \textbf{MaxDistanceRule}: Hard-rejects if the endpoint-to-endpoint gap
+        exceeds \texttt{max\_distance\_nm} (set to 20{,}000~nm for XPRESS to
+        accommodate PCA-based endpoint pairs, whose tip-to-tip distance can reach
+        12{,}000~nm).
+
+  \item \textbf{CurvatureRule}: Rejects if the junction angle exceeds
+        \texttt{max\_curvature\_deg} (150°). For long-range pairs
+        (gap $> \texttt{skip\_distance\_nm}$ = 1000~nm), the rule is skipped
+        entirely, because the endpoint-centroid direction estimate is unreliable
+        at large distances and causes false rejections.
+
+  \item \textbf{DirectionReversalRule}: Rejects if the two fragment tangent
+        vectors point away from each other (dot product $< 0$).
+
+  \item \textbf{SizeDiscrepancyRule}: Rejects if the cube-root radius ratio
+        exceeds \texttt{max\_radius\_ratio} (15.0 for XPRESS).
+
+  \item \textbf{BranchingLimitRule}: Rejects if the merge would connect to more
+        than \texttt{max\_branches} (5{,}000) already-accepted partners. This is
+        a safeguard against pathological graph nodes.
+
+  \item \textbf{CompositeScoreRule}: Hard-rejects if the composite score is below
+        \texttt{reject\_threshold} (0.15).
+\end{enumerate}
+
+All rules are configurable via YAML and may be omitted or reordered.
+
+\paragraph{Accept/reject thresholds.}
+After all rules pass, a candidate is accepted if its composite score exceeds
+\texttt{accept\_threshold} (0.25). Candidates between \texttt{reject\_threshold}
+and \texttt{accept\_threshold} are marked AMBIGUOUS.
+
+\section{Stage 5: Assembly}
+
+Accepted connections are added as edges to the fragment graph. Connected
+components of this graph define assembled structures (reconstructed neurons
+or axon segments). The assembler checks each structure for cycles, excessive
+branching, and ambiguous connections, attaching topology warnings as metadata.
+Per-structure confidence is computed as the minimum composite score across all
+accepted connections (weakest-link model).
+
+\section{Stage 6: Export}
+
+The pipeline exports results in up to five formats: CSV tables of fragment
+metadata and per-connection decisions (default, used for all XPRESS experiments),
+GraphML (disabled by default due to OOM risk at scale --- 815{,}000+ edges produce
+multi-gigabyte XML files), SWC neuron morphology, Neuroglancer annotation layers,
+and a corrected precomputed segmentation volume with accepted merges applied.
+
+\section{Ground Truth Evaluation}
+
+\paragraph{CREMI oracle.}
+For CREMI, the ground truth is available as human-annotated segment labels. The
+evaluation oracle considers two fragments as a true merge pair if they share the
+same ground-truth label ID. Evaluation computes precision, recall, and F1 over
+accepted candidates, excluding ambiguous candidates from all denominators.
+
+\paragraph{XPRESS skeleton oracle.}
+For XPRESS, ground truth is provided as manually traced skeleton graphs
+(\texttt{XPRESS\_training\_skels.npz}). For each ground-truth axon trajectory,
+the two segmentation fragments containing the most skeleton nodes on either side
+of a trajectory gap define a merge pair. The oracle is built by:
+(1) mapping skeleton node coordinates (in physical nm space) to segmentation
+label IDs by voxel lookup, accounting for the volume's physical offset;
+(2) identifying the dominant label for each trajectory segment; and
+(3) recording pairs of labels that are separated by a gap in the ground-truth
+trajectory but belong to the same axon.
+
+Two metrics are reported: \textbf{Coverage} (fraction of oracle pairs for which
+the pipeline generates at least one candidate), measuring graph-construction
+reach, and \textbf{Recall} (fraction of covered pairs that are accepted),
+measuring validation accuracy. Precision is computed as the fraction of accepted
+candidates that correspond to oracle pairs.
+
+\section{Visual Validation Report}
+
+To support qualitative inspection of pipeline behavior, we developed a diagnostic
+report generator (\texttt{scripts/generate\_visual\_report.py}) that produces a
+multi-page PDF or inline GitHub images. For a stratified sample of candidates
+(high-confidence accepted, low-confidence accepted, borderline rejected, random
+rejected), each panel shows a 2D cross-section of the segmentation volume centered
+between the two fragment centroids: Fragment~A in red, Fragment~B in blue,
+surrounding context in gray, and a white arrow indicating the proposed connection
+direction. This allows rapid visual verification that the pipeline's geometric
+reasoning is consistent with the underlying data.

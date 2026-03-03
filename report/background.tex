@@ -1,0 +1,117 @@
+\section{Connectomics and Volumetric Imaging}
+
+Connectomics is the study of neural wiring diagrams at synaptic resolution.
+A connectome maps which neurons connect to which, with what synaptic strength,
+and through which anatomical pathways. To obtain this information, researchers
+section brain tissue into ultrathin slices (30--50~nm thick for EM; thicker
+sections are used for XNH), image each slice, and reconstruct the
+three-dimensional morphology of every neuron computationally.
+
+Two imaging modalities are relevant to this work:
+
+\paragraph{Electron Microscopy (EM).}
+Serial-section transmission EM and focused ion beam scanning EM (FIB-SEM)
+achieve 4--8~nm lateral resolution, sufficient to resolve individual synaptic
+vesicles. The CREMI dataset~\cite{cremi2016} used in this work is a
+$1250 \times 1250 \times 125$ voxel volume of \emph{Drosophila} larval brain
+at $4 \times 4 \times 40$~nm resolution. The density of membranes and
+organelles in EM images makes segmentation challenging: membranes appear as
+bright thin sheets that segmenters must trace accurately.
+
+\paragraph{X-ray Nano-Holotomography (XNH).}
+XNH uses synchrotron X-rays to image brain tissue in three dimensions without
+physical sectioning. It achieves lower resolution than EM (typically 25--33~nm
+isotropic) but can image much larger volumes non-destructively. The XPRESS
+challenge~\cite{xpress2023} uses a $699 \times 699 \times 699$ voxel volume of
+mouse white matter at 33~nm isotropic resolution. Myelinated axons appear as
+bright tubular structures surrounded by darker myelin sheaths, giving them
+a characteristic ring-like cross-section that aids geometric reasoning.
+
+\section{Automated Neural Segmentation}
+
+Modern neural segmenters use deep convolutional networks, typically operating
+on affinity predictions (per-voxel estimates of whether neighboring voxels
+belong to the same object). Affinity maps are then processed by a watershed
+or flood-filling algorithm to produce a label volume where each integer value
+identifies a unique putative neuron fragment.
+
+Flood-filling networks~\cite{januszewski2018high} are among the most accurate
+segmenters: a convolutional network iteratively ``fills'' a segment from a seed,
+deciding at each step whether to extend the current object or stop. Despite
+high accuracy, all automated approaches produce residual errors.
+
+\section{Segmentation Errors: Splits and Merges}
+
+Segmentation errors fall into two categories:
+
+\begin{description}
+  \item[Merge errors] Two distinct neurons are assigned the same label. A merge
+        introduces a false synapse (two neurons that appear connected when they
+        are not) and is considered the more serious error type.
+  \item[Split errors] A single neuron is broken into multiple fragments with
+        distinct labels. Splits are more common than merges in long, thin structures
+        like axons, where slight imaging artifacts or membrane contrast variation
+        can interrupt a segmenter's flood-fill.
+\end{description}
+
+The XPRESS challenge reports that the baseline segmenter produces 1{,}499
+ground-truth merge pairs across the training volume --- each pair representing
+one split error that the pipeline must detect and propose to merge. The challenge
+is to accept as many true pairs as possible (high recall) while rejecting
+cross-axon false positives (high precision).
+
+\section{Skeletonization}
+
+Skeleton extraction converts a volumetric label into a compact graph of
+centerline nodes and edges, capturing the topology of the neuron's morphology.
+The TEASAR algorithm (Tree-structure Extraction Algorithm for Accurate and Robust
+Skeletons)~\cite{sato2000teasar} traces a tree-structured skeleton by finding
+shortest paths to a set of ``target'' voxels identified via distance-transform
+analysis. TEASAR produces compact, well-centered skeletons with configurable
+branch sensitivity. We use the \texttt{kimimaro}~\cite{kimimaro} Python
+implementation, which supports GPU acceleration and multi-label batch processing.
+
+Skeleton endpoints (degree-1 nodes in the skeleton graph) are natural
+connection points: a true split typically produces two fragments whose free
+endpoints point toward each other across the gap. However, for long axons that
+are split in the interior (far from either end), the relevant skeleton nodes are
+\emph{interior} nodes, not endpoints --- a key observation that motivates the
+skeleton-node graph construction described in Chapter~\ref{ch:methodology}.
+
+\section{The XPRESS Challenge}
+
+The XPRESS (X-ray nano-holotomography Processing for Evaluation of Segmentation
+Software) challenge~\cite{xpress2023} provides:
+
+\begin{itemize}
+  \item A baseline segmentation volume (\texttt{baseline\_seg\_full.h5}): the
+        output of an automated segmenter applied to mouse white matter XNH data.
+        The volume is $699^3$ voxels at 33~nm isotropic resolution.
+  \item A ground-truth skeleton dataset (\texttt{XPRESS\_training\_skels.npz}):
+        manually traced skeleton graphs for the true axon trajectories, used as
+        a proofreading oracle.
+  \item A held-out validation volume (\texttt{baseline\_seg\_validation.h5}) with
+        203 ground-truth merge pairs, used to evaluate generalization.
+\end{itemize}
+
+Ground-truth evaluation proceeds as follows: for each true axon trajectory, the
+two baseline-segmentation fragments whose label IDs contain the most ground-truth
+skeleton nodes at either end of the trajectory define an oracle merge pair. A
+pipeline \emph{covers} a pair if it generates at least one candidate connecting
+those two fragments. Of the covered pairs, those that are also accepted constitute
+true positives.
+
+\section{Prior Approaches to Automated Proofreading}
+
+Early proofreading systems were purely manual, relying on human experts working
+in tools such as CATMAID or Neuroglancer to trace axons and correct errors. The
+scale of modern datasets has made fully manual proofreading infeasible, motivating
+a shift toward human-in-the-loop systems~\cite{dorkenwald2022cave} where
+algorithms propose corrections and humans verify only the uncertain cases.
+
+Automated correction proposal systems generally follow one of two paradigms:
+\emph{voxel-level} approaches, which re-run or fine-tune segmentation on regions
+flagged as likely errors, and \emph{graph-level} approaches, which reason about
+fragment-to-fragment merge plausibility using geometric or learned features.
+This work falls in the latter category, operating entirely in the post-segmentation
+graph domain without re-examining raw image data.

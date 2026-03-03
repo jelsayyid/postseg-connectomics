@@ -1,0 +1,48 @@
+This work presents a conservative, modular post-segmentation pipeline for
+automated split-error detection in connectomics data. The central research
+question was: \emph{can a geometry-only, rule-based pipeline achieve high recall
+on neural split detection without introducing excessive merge errors?}
+
+On the CREMI Drosophila EM benchmark, the answer is clearly affirmative:
+Precision = 1.000, Recall = 0.909, F1 = 0.952, with zero false positives. On
+the XPRESS mouse white matter XNH challenge --- a harder domain where the
+segmented structures are elongated tubular axons with interior splits --- the
+pipeline achieves Recall = 0.994 on the training oracle and Recall = 0.885 on
+the fully held-out validation volume, confirming generalization.
+
+\paragraph{Key findings.}
+Two innovations are responsible for the majority of the XPRESS recall improvement:
+
+\begin{enumerate}
+  \item The \textbf{skeleton-node graph} raises oracle coverage by 56.8
+        percentage points over an endpoint-only graph in a single change, by
+        enabling detection of interior splits along long axons.
+
+  \item \textbf{Distance-conditioned scoring} prevents the proximity decay from
+        suppressing long-range candidates whose alignment and continuity are
+        strong, enabling the pipeline to accept splits at gaps up to 2000~nm.
+\end{enumerate}
+
+\paragraph{Challenges.}
+The dominant open challenge is precision: Precision $\approx 0.004$ on XPRESS,
+meaning approximately 280 false-positive merge proposals for every true positive.
+This stems from the geometric feature space being insufficient to discriminate
+same-axon from cross-axon long-range pairs at the density of myelinated white
+matter. A machine-learned filter (Experiment~20) improved precision $10\times$
+(to 0.037) at the cost of recall, but could not maintain recall $\geq 0.99$.
+
+A secondary challenge is the MinGapRule, which was intended to filter adjacency
+false positives but also rejects 37 genuine short-gap splits, reducing training
+recall to 0.966 and coverage to 75.9\%. Removing this rule restores the
+Experiment~17 configuration (Recall = 0.994, Coverage = 83.5\%).
+
+The coverage ceiling of 83.5\% is a structural limit of the 2000~nm search
+radius: 247 oracle pairs have a gap or PCA-tip distance that exceeds this
+threshold and cannot be reached by the current graph construction.
+
+\paragraph{Summary of contributions.}
+The pipeline is fully implemented, tested (428 tests, 0 failures), documented,
+and open-source. It includes a YAML configuration system, six processing stages,
+multi-format export, a ground-truth evaluation framework for two benchmarks,
+an ML-based post-filter, and a visual diagnostic report generator. Twenty-three
+experiments with detailed quantitative logs trace the development of each component.

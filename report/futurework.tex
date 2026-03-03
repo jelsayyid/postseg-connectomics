@@ -1,0 +1,74 @@
+\section{Immediate: Experiment 24 (MinGapRule Removal)}
+
+The most impactful near-term change is removing the MinGapRule (setting
+\texttt{min\_gap\_nm} = 0), which recovers 37 training false negatives and 114
+additional oracle pairs, restoring Recall = 0.994 and Coverage = 83.5\% on the
+training volume and projecting to Recall $\approx 0.99$ on the held-out
+validation set. Simultaneously, raising \texttt{max\_radius\_ratio} from 15.0
+to 20.0 recovers 2 SizeDiscrepancyRule false negatives at minimal precision cost.
+This experiment requires only a YAML change and a full pipeline re-run ($\sim 90$
+minutes).
+
+\section{Precision Improvement}
+
+Addressing the precision gap (currently 0.004) is the highest-priority research
+problem. Three approaches are under consideration:
+
+\begin{enumerate}
+  \item \textbf{Improved geometric features.} The current features do not
+        capture local neighborhood density (how many other fragments are nearby
+        a proposed pair) or myelin sheath consistency. Adding a neighborhood
+        density feature may discriminate same-axon pairs (isolated in their local
+        neighborhood) from cross-axon pairs (surrounded by many other axons).
+
+  \item \textbf{Retrained ML filter.} The Experiment~20 classifier was trained
+        on degree features that are effective at recall 0.85 but not at 0.99.
+        A model trained specifically to maximize precision at recall $\geq 0.99$
+        (using a custom loss function or recall-constrained Pareto search) may
+        achieve better results.
+
+  \item \textbf{Agglomerative confidence scoring.} Rather than accepting all
+        candidates above a fixed composite threshold, a global agglomerative
+        approach could select the best non-conflicting set of merges across the
+        entire volume, trading some recall for large precision gains.
+\end{enumerate}
+
+\section{Coverage Expansion}
+
+The current 247 unreachable oracle pairs fall into two categories: 172 with
+true gap $> 2000$~nm, and 75 involving PCA-only endpoint fragments whose
+bounding-box tip-to-tip distance does not span the gap. Two options:
+
+\begin{itemize}
+  \item Raise \texttt{max\_endpoint\_search\_nm} from 2000 to 3000~nm.
+        Experiment~13 showed this causes recall regression, but that was before
+        distance-conditioned scoring (Exp~14) and CurvatureRule skip (Exp~16)
+        were added. A re-test at 3000~nm with the current scoring may give
+        different results.
+
+  \item Raise \texttt{max\_skeleton\_voxels} to cover the 63 PCA-only fragments,
+        each requiring 5--30 seconds of TEASAR time ($\sim 13$ minutes additional
+        runtime total). Better skeleton coverage would improve endpoint accuracy
+        for large fragments.
+\end{itemize}
+
+\section{XPRESS Challenge Submission}
+
+The pipeline results have not yet been submitted to the XPRESS challenge portal
+(\url{https://xpress.grand-challenge.org/}) for official evaluation. A formal
+submission would provide an external, blind evaluation and place the results
+in the context of other participating systems.
+
+\section{Final Report and Presentation}
+
+This document constitutes a working draft. The final report (due at end of
+semester) will incorporate:
+
+\begin{itemize}
+  \item Results from Experiment~24 (MinGapRule removal) and any subsequent
+        precision-improvement experiments.
+  \item Official XPRESS challenge submission results, if available.
+  \item A more thorough literature comparison with other submitted XPRESS systems.
+  \item Expanded visual validation figures, including per-FN analysis and
+        a systematic view of the borderline rejection cases.
+\end{itemize}

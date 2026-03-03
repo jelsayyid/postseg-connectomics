@@ -1,0 +1,47 @@
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+Large-scale connectomics --- the mapping of neural circuits from volumetric
+electron microscopy (EM) and X-ray nano-holotomography (XNH) data --- requires
+automated segmentation of three-dimensional image volumes into individual neuronal
+fragments. State-of-the-art automated segmenters produce fragments with high accuracy
+but inevitably introduce \emph{split errors}, where a single neuron is represented as
+multiple disconnected fragments. Correcting these errors at the scale of modern
+connectomics datasets (tens to hundreds of teravoxels) demands automated
+proofreading pipelines that can detect and propose corrections for split errors
+with high recall and with explicit handling of uncertainty.
+
+This report presents a modular, conservative post-segmentation pipeline that
+takes the output of an automated segmenter and produces a graph-based
+connectivity representation with confidence-annotated merge proposals. The pipeline
+operates in six stages: fragment extraction with TEASAR skeletonization, graph
+construction via a skeleton-node KD-tree index, candidate generation with a
+four-factor composite scoring model, conservative three-outcome rule-based
+validation (ACCEPT / REJECT / AMBIGUOUS), structure assembly, and multi-format
+export. Critically, the pipeline treats uncertainty as a first-class output ---
+ambiguous connections are preserved for human review rather than forced to a
+binary decision.
+
+Two key innovations drive the approach's effectiveness on axon-dominated datasets.
+First, a \emph{skeleton-node graph} indexes every skeleton node from every fragment
+(rather than only degree-1 endpoints), exposing interior splits along long axons
+that an endpoint-only graph cannot detect. Second, \emph{distance-conditioned
+scoring} switches from a proximity-weighted composite to a proximity-free,
+alignment-continuity-weighted score for long-range candidate pairs, preventing
+the artificial suppression of genuine long-range splits.
+
+Evaluated on the CREMI Drosophila EM benchmark, the pipeline achieves
+Precision = 1.000, Recall = 0.909, and F1 = 0.952. On the XPRESS mouse white
+matter XNH challenge --- the primary domain-appropriate benchmark --- the pipeline
+achieves Coverage = 83.5\% and Recall = 0.994 on the training volume (Experiment~17),
+and Coverage = 72.4\%, Recall = 0.885 on the fully held-out validation volume
+(Experiment~23), confirming that the learned thresholds generalize without
+overfitting. The pipeline is validated by 428 automated tests and includes a
+reproducible visual diagnostic report for per-candidate inspection.
+
+The main open challenge is precision: approximately 354{,}000 false-positive
+merge proposals are generated alongside 1{,}245 true positives at XPRESS scale
+(Precision $\approx$ 0.004), reflecting the difficulty of discriminating
+same-axon from different-axon long-range pairs in myelinated white matter using
+geometric features alone. Future work targets this gap through improved scoring
+and lightweight machine-learned filters.

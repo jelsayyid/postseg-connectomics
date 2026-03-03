@@ -1,0 +1,91 @@
+% CPSC 4900 Senior Project
+% A Conservative Post-Segmentation Pipeline for Large-Scale Connectomics
+% Yale University, Spring 2026
+
+\documentclass[12pt,twoside]{report}
+\usepackage[utf8]{inputenc}
+\usepackage{times}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\graphicspath{ {images/} }
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[a4paper,width=150mm,top=35mm,bottom=35mm,bindingoffset=6mm]{geometry}
+
+\usepackage{float}
+\usepackage{url}
+\urlstyle{same}
+\usepackage[%
+  colorlinks,bookmarksopen,bookmarksnumbered,citecolor=black,urlcolor=black,linkcolor=black
+]{hyperref}
+
+\usepackage{titlesec}
+\usepackage{booktabs}
+\usepackage{xcolor}
+
+% Customize chapter title format
+\titleformat{\chapter}[hang]
+  {\normalfont\huge\bfseries}{\thechapter}{1em}{}
+\titlespacing*{\chapter}{0pt}{35pt}{20pt}
+
+\bibliographystyle{plainnat}
+\usepackage[sorting=none]{biblatex}
+\addbibresource{references.bib}
+\hypersetup{linkcolor=black}
+
+\begin{document}
+
+\input{titlepage}
+
+\chapter*{Acknowledgements}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+
+I would like to express my sincere gratitude to Dr.\ Aaron T.\ Kuan and the Kuan
+Lab at Yale School of Medicine for providing the domain expertise, datasets, and
+mentorship that shaped this project. The XPRESS challenge data used in this work
+was provided through the challenge infrastructure maintained by the challenge
+organizers. The CREMI benchmark data is publicly available through the CREMI
+challenge.
+
+Special thanks to the Yale Department of Computer Science for the resources and
+academic environment that supported this work. This project was completed as part
+of the CPSC 4900 Senior Project requirement.
+
+{
+  \hypersetup{linkcolor=black}
+  \tableofcontents
+}
+
+\clearpage
+
+\input{abstract}
+
+\chapter{Introduction}
+\input{introduction}
+
+\chapter{Background} \label{ch:background}
+\input{background}
+
+\chapter{Methodology} \label{ch:methodology}
+\input{methodology}
+
+\chapter{Results} \label{ch:results}
+\input{results}
+
+\chapter{Related Work} \label{ch:relatedwork}
+\input{relatedwork}
+
+\chapter{Conclusions} \label{ch:conclusion}
+\input{conclusion}
+
+\chapter{Future Work} \label{ch:futurework}
+\input{futurework}
+
+\printbibliography
+
+\appendix
+\chapter{Supplementary Material} \label{ch:appendices}
+\input{appendices}
+
+\end{document}

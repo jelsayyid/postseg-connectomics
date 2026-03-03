@@ -1,0 +1,76 @@
+\section{Automated Neural Segmentation}
+
+The dominant approach to large-scale neural segmentation uses convolutional
+neural networks trained to predict affinities or boundary probabilities, followed
+by a graph-based merge step (watershed, multicut, or similar) to produce
+instance labels. Flood-filling networks (FFN)~\cite{januszewski2018high} achieve
+state-of-the-art results on EM data by iteratively extending segment predictions
+from seeds, and are used as the baseline segmenter for the XPRESS challenge.
+PyTorch Connectomics~\cite{lin2021pytorch} provides a flexible framework for
+training and deploying multiple segmentation architectures.
+
+\section{Proofreading Infrastructure}
+
+The CAVE (Connectome Annotation Versioning Engine)~\cite{dorkenwald2022cave}
+system provides infrastructure for storing, versioning, and updating connectomics
+annotations at scale. CAVE implements a chunk-based merge graph (PyChunkedGraph)
+that allows atomic merge and split operations with full provenance tracking.
+Our pipeline is designed to produce outputs compatible with CAVE-style
+infrastructure: candidate connections in CSV form map naturally to proposed
+merge operations, and the Neuroglancer annotation export can be overlaid in
+CAVE's Neuroglancer integration.
+
+The MICrONS Consortium~\cite{microns2025} recently published a functional
+connectome of mouse visual cortex ($\sim$200{,}000 neurons, $\sim$500 million
+synapses), representing the current scale of ambition for automated connectomics.
+The proofreading pipeline underlying MICrONS relied on CAVE and extensive human
+review, highlighting the importance of automated tools that reduce the human
+burden.
+
+\section{Error Detection and Correction}
+
+Zung et al.~\cite{zung2017} proposed a framework for detecting and correcting
+segmentation errors using a classifier trained on local volume patches. Their
+approach operates at the voxel level, re-examining the raw image near putative
+error sites. Our work operates entirely in the post-segmentation graph domain,
+which is faster (no re-examination of raw data) and format-agnostic (works on
+any segmentation, not only those for which raw data is available).
+
+Plaza et al.~\cite{plaza2018analyzing} provide a rigorous treatment of
+segmentation quality metrics for connectomics, including the definitions of
+split and merge errors, the rand index, and the variation of information used
+in challenge evaluations. Their framework informed the precision/recall
+accounting used in this work, particularly the handling of ambiguous (AMBIGUOUS)
+outcomes, which are excluded from precision/recall denominators.
+
+\section{Skeleton-Based Proofreading}
+
+Skeleton-based proofreading approaches identify potential split errors by
+finding pairs of skeletons whose endpoints are spatially close and geometrically
+compatible. Early systems used simple distance thresholds; modern approaches
+add learned classifiers. The key contribution of this work is the skeleton-node
+(interior) indexing strategy, which extends the detectable split positions from
+fragment endpoints to any point along the axon.
+
+The XPRESS challenge~\cite{xpress2023} was specifically designed to benchmark
+automated proofreading of myelinated axons in XNH data, providing standardized
+ground-truth oracle pairs for training and evaluation. To our knowledge, this
+work is among the first applications of a conservative, rule-based graph-level
+pipeline to the XPRESS benchmark, achieving Recall = 0.994 on the training volume.
+
+\section{Graph Construction Strategies}
+
+Several works have explored variants of the fragment graph construction problem.
+Contact-based graphs (edges between touching fragments) are simple but miss
+genuine splits with small gaps. Proximity-based graphs (edges between fragments
+within a distance threshold) are more general; the key design choice is what
+set of points to index. Our work systematically compares endpoint-only vs.\
+full skeleton-node indexing and quantifies the impact of each on oracle coverage,
+finding that full skeleton-node indexing is essential for interior splits.
+
+The long-range endpoint pass introduced in Experiment~11 is similar in spirit
+to approaches used in EM proofreading that specifically target ``broken wire''
+errors by searching for endpoint pairs at larger radii than the standard
+neighborhood. Our contribution is the distance-conditioned scoring that
+accompanies this pass, preventing the proximity feature from suppressing
+genuine long-range candidates.

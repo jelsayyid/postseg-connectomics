@@ -1,0 +1,63 @@
+\section{Experiment Log Summary}
+
+A complete record of all 23 experiments is maintained in
+\texttt{docs/EXPERIMENT\_LOG.md} in the project repository. Each entry
+records the configuration parameters changed, the pipeline run statistics
+(fragment count, candidate count, accepted/rejected counts), the evaluation
+results (coverage, recall, precision, F1), and qualitative observations.
+The repository is publicly available at:
+
+\begin{center}
+\url{https://github.com/jelsayyid/postseg-connectomics}
+\end{center}
+
+\section{XPRESS Configuration (Experiment 17)}
+
+The following YAML configuration produced the best reported XPRESS results
+(Coverage = 83.5\%, Recall = 0.994):
+
+\begin{verbatim}
+graph:
+  construction_method: "skeleton_node"
+  max_distance_nm: 500
+  max_endpoint_search_nm: 2000
+
+candidates:
+  max_endpoint_distance_nm: 600
+  weights: {proximity: 0.35, alignment: 0.30,
+             continuity: 0.25, size: 0.10}
+  long_range_threshold_nm: 1000
+  long_range_weights: {proximity: 0.00, alignment: 0.45,
+                        continuity: 0.40, size: 0.15}
+
+validation:
+  accept_threshold: 0.25
+  reject_threshold: 0.15
+  rules:
+    - name: "MaxDistanceRule"
+      params: {max_distance_nm: 20000}
+    - name: "CurvatureRule"
+      params: {max_curvature_deg: 150, skip_distance_nm: 1000}
+    - name: "DirectionReversalRule"
+      params: {min_alignment: 0.0}
+    - name: "SizeDiscrepancyRule"
+      params: {max_radius_ratio: 15.0}
+    - name: "BranchingLimitRule"
+      params: {max_branches: 5000}
+    - name: "CompositeScoreRule"
+      params: {reject_threshold: 0.15}
+\end{verbatim}
+
+\section{Software and Reproducibility}
+
+All experiments were run on:
+\begin{itemize}
+  \item OS: Ubuntu 22.04 (WSL2 on Windows 11)
+  \item Python 3.10.12
+  \item Key dependencies: NumPy 1.26, NetworkX 3.3, h5py 3.11, kimimaro 4.1,
+        scikit-learn 1.5, matplotlib 3.9
+\end{itemize}
+
+All configs, test results, and experiment logs are versioned in the public
+GitHub repository. Random seeds are fixed (\texttt{seed: 42}) and all
+pipeline operations are deterministic for the same inputs and config.
