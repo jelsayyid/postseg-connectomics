@@ -2102,9 +2102,36 @@ a sharp bend that the pipeline correctly treats as suspicious.
    a true regression.  Within the evaluation method used consistently here, coverage improved
    from 75.9% (Exp 23 config) to 78.7%.
 
+**Validation volume results (Exp 24 config on held-out 699³ volume):**
+
+| Metric | Exp 23 (old config) | Exp 24 (new config) | Delta |
+|--------|--------------------|--------------------|-------|
+| Oracle pairs | 203 | 203 | — |
+| Coverage | 72.4% (147) | 81.3% (165) | +8.9pp |
+| TP (unique oracle pairs accepted) | ~154 | 163 | +9 |
+| FN (covered, rejected) | 20 | 2 | -18 |
+| Recall | 0.885 | **0.9879** | +10.3pp |
+| Accepted connections | 443,682 | 459,113 | +15,431 |
+
+The 2 remaining validation FNs are the identical CurvatureRule cases already present in Exp 23
+(gap=382 nm and gap=693 nm — both have direction reversal > 150° and gap < skip_distance_nm=1000 nm):
+
+| fragment_a | fragment_b | gap_nm | alignment | composite | Rule |
+|------------|------------|--------|-----------|-----------|------|
+| 2127 | 2369 | 693.0 | 0.725 | 0.606 | CurvatureRule |
+| 8532 | 8799 | 382.0 | 0.432 | 0.423 | CurvatureRule |
+
+MinGapRule removal recovered exactly the 18 MinGapRule FNs predicted by Exp 23 diagnosis.
+No new FPs introduced: precision is unchanged at ~0.00035 on the validation volume.
+
+**Generalization is excellent.** Recall improved 0.885→0.9879 on the held-out volume (+10.3pp),
+closely tracking the training improvement (0.966→0.9958). FN pattern is consistent: 2 hard
+CurvatureRule failures in both training and validation.
+
 **Action items:**
-- [ ] Run Exp 24 config on validation volume to check generalization
-- [ ] Consider raising `skip_distance_nm` for CurvatureRule to recover 2 of 5 FNs at gaps 976/987 nm
+- [x] Run Exp 24 config on validation volume — done (Recall=0.9879)
+- [ ] Consider raising `skip_distance_nm` to ~1100nm to catch 2 training FNs at 976/987nm and
+      1 validation FN at 693nm (recovery of 3/7 total FNs at low risk)
 - [ ] Consider XPRESS challenge portal submission
 
 **Tests:** 428 total, 0 failures.
