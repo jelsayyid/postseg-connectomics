@@ -1,5 +1,6 @@
-# XPRESS Challenge — Validation volume evaluation (Experiment 23)
-# Same config as xpress_sample.yaml (Exp 17 settings) applied to held-out validation volume.
+# XPRESS Challenge — Validation volume evaluation (Experiment 24)
+# Exp 24 settings: Exp 17 weights rebalanced (proximity 0.35→0.15, alignment 0.30→0.45),
+# MinGapRule disabled (min_gap_nm=0), SizeDiscrepancyRule raised (15.0→20.0).
 # Validation data: baseline_seg_validation.h5 (699×699×699 vox, offset (252,252,252) in full volume)
 # GT skeletons: XPRESS_validation_skels.npz (203 oracle merge pairs)
 #
@@ -38,11 +39,11 @@ graph:
 candidates:
   max_endpoint_distance_nm: 600
   min_alignment_score: 0.3
-  min_composite_score: 0.2
+  min_composite_score: 0.1         # Exp 24: lowered from 0.2
   weights:
-    proximity: 0.35
-    alignment: 0.30
-    continuity: 0.25
+    proximity: 0.15                  # Exp 24: was 0.35; direction is the primary discriminator
+    alignment: 0.45                  # Exp 24: was 0.30
+    continuity: 0.30                 # Exp 24: was 0.25
     size: 0.10
   long_range_threshold_nm: 1000
   long_range_weights:
@@ -59,7 +60,7 @@ validation:
   rules:
     - name: "MinGapRule"
       params:
-        min_gap_nm: 150
+        min_gap_nm: 0                # Exp 24: disabled (was 150)
         max_expected_nm: 2000
     - name: "MaxDistanceRule"
       params:
@@ -73,7 +74,7 @@ validation:
         min_alignment: 0.0
     - name: "SizeDiscrepancyRule"
       params:
-        max_radius_ratio: 15.0
+        max_radius_ratio: 20.0       # Exp 24: was 15.0
     - name: "BranchingLimitRule"
       params:
         max_branches: 5000

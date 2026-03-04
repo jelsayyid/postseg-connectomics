@@ -60,11 +60,16 @@ graph:
 candidates:
   max_endpoint_distance_nm: 600    # was 400; gives non-zero proximity for 400–600 nm gaps
   min_alignment_score: 0.3
-  min_composite_score: 0.2
+  min_composite_score: 0.1         # Exp 24: lowered from 0.2; weight rebalance reduces proximity-driven
+                                   # composites slightly below 0.2 — use validation CompositeScoreRule instead
   weights:
-    proximity: 0.35
-    alignment: 0.30                  # Alignment is reliable here: axons have clear long-axis direction
-    continuity: 0.25
+    # Exp 24: de-emphasize proximity (distance) in favour of alignment (gap direction).
+    # compute_alignment_score already checks dot(t_A, gap_dir) and dot(t_B, -gap_dir),
+    # i.e. whether each fragment's tangent points toward the other — the right signal
+    # for same-axon identification.  Proximity is still useful but should not dominate.
+    proximity: 0.15                  # was 0.35; distance is deceptive when many tips cluster
+    alignment: 0.45                  # was 0.30; direction-to-gap is the primary discriminator
+    continuity: 0.30                 # was 0.25; local curvature continuity supports alignment
     size: 0.10
   # For pairs with gaps > 1000 nm, proximity ≈ 0 regardless of max_endpoint_distance_nm.
   # Drop the proximity weight entirely and redistribute to alignment/continuity so
@@ -84,7 +89,9 @@ validation:
   rules:
     - name: "MinGapRule"
       params:
-        min_gap_nm: 150              # Exp 19: reject short-gap adjacency FPs; oracle pairs with gap<150nm: ~5.6%
+        min_gap_nm: 0                # Exp 24: disabled (was 150). MinGapRule was cause of 37/43 training FNs
+                                     # and 18/20 validation FNs.  Adjacency FPs are controlled by alignment+
+                                     # continuity weights, not gap distance.
         max_expected_nm: 2000
     - name: "MaxDistanceRule"
       params:
@@ -98,7 +105,7 @@ validation:
         min_alignment: 0.0
     - name: "SizeDiscrepancyRule"
       params:
-        max_radius_ratio: 15.0       # Raised: trunk-to-tip radius 3-13x → voxel ratio up to 13^3=2197x → cube-root=13; 15.0 gives headroom
+        max_radius_ratio: 20.0       # Raised 15.0→20.0 (Exp 24): recovers 2 stub-vs-trunk FNs (ratios 15.4 and 18.2)
     - name: "BranchingLimitRule"
       params:
         max_branches: 5000           # Raised: PCA bbox graph has degree up to 2379 for large fragments
