@@ -68,7 +68,7 @@ validation:
     - name: "CurvatureRule"
       params:
         max_curvature_deg: 150
-        skip_distance_nm: 1000
+        skip_distance_nm: 1000       # Exp 24 config: skip curvature check for long-range pairs
     - name: "DirectionReversalRule"
       params:
         min_alignment: 0.0

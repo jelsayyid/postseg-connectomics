@@ -2130,9 +2130,62 @@ CurvatureRule failures in both training and validation.
 
 **Action items:**
 - [x] Run Exp 24 config on validation volume — done (Recall=0.9879)
-- [ ] Consider raising `skip_distance_nm` to ~1100nm to catch 2 training FNs at 976/987nm and
-      1 validation FN at 693nm (recovery of 3/7 total FNs at low risk)
+- [x] Consider raising `skip_distance_nm` to ~1100nm — NEGATIVE (Exp 25), reverted
 - [ ] Consider XPRESS challenge portal submission
+
+**Tests:** 428 total, 0 failures.
+
+---
+
+## Experiment 25: CurvatureRule skip_distance_nm 1000→1100nm — NEGATIVE
+
+**Date:** 2026-03-04
+**Objective:** Raise `CurvatureRule.skip_distance_nm` from 1000 to 1100 nm to recover the 2
+training FNs at gap=976/987nm and 1 validation FN at gap=693nm, all of which were being
+rejected by CurvatureRule.
+
+**Hypothesis (incorrect):** The 976/987nm FNs are "just under" the 1000nm skip threshold,
+so raising to 1100nm would skip the curvature check for them → they'd be accepted.
+
+**Config change:** `skip_distance_nm: 1000 → 1100` in both xpress_sample.yaml and xpress_validation.yaml.
+
+**Training result (via pipeline re-run):**
+
+| FN | fragment_a | fragment_b | gap_nm | align | composite | Rule |
+|----|------------|------------|--------|-------|-----------|------|
+| old+new | 1811 | 1812 | 66.0 | 0.434 | 0.518 | CurvatureRule |
+| old+new | 1929 | 1931 | 208.7 | 0.659 | 0.641 | CurvatureRule |
+| old+new | 2897 | 3150 | 462.0 | 0.405 | 0.408 | CurvatureRule |
+| old+new | 2938 | 3196 | 976.2 | 0.579 | 0.461 | CurvatureRule |
+| old+new | 7194 | 7506 | 986.7 | 0.656 | 0.582 | CurvatureRule |
+| **new** | 7578 | 7769 | 1050.3 | 0.763 | 0.765 | CurvatureRule |
+
+| Metric | Exp 24 | Exp 25 | Delta |
+|--------|--------|--------|-------|
+| FN | 5 | 6 | +1 |
+| Recall | **0.9958** | 0.9949 | -0.9pp |
+
+**Root cause of failure:**
+
+The `skip_distance_nm` semantics are: if `gap > skip_distance_nm`, SKIP the curvature check
+(accept unconditionally). Code: `if gap > skip_distance_nm: return ACCEPT`.
+
+- Raising to 1100nm extends the curvature check to pairs up to 1100nm gap.
+- The 976/987nm FNs (gap < 1000nm) were ALREADY subject to the check at 1000nm — raising
+  does NOT help them (they're still checked and still rejected).
+- The 1050nm pair (7578-7769) was previously SKIPPED (gap > 1000nm → accepted, TP).
+  Raising to 1100nm now checks it → fails → new FN.
+
+**Net effect: +1 FN, -0.9pp recall. NEGATIVE.**
+
+**Key insight:** The memory/log note "raise skip_distance_nm to recover 976/987nm FNs" was
+wrong about the direction. To recover those FNs, skip_distance_nm must be *lowered* to ~975nm
+(so gap=976nm > 975nm threshold → skip check → accept). But lowering to 975nm also stops
+checking pairs between 975–1000nm, risking new FPs in that range.
+
+**Decision:** Reverted both configs to `skip_distance_nm: 1000` (Exp 24 baseline).
+The 5 hard CurvatureRule FNs at gaps 66–987nm are treated as unrecoverable without
+unacceptable precision regression. Exp 24 remains the best config (Recall=0.9958/0.9879).
 
 **Tests:** 428 total, 0 failures.
 
