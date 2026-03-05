@@ -2,8 +2,8 @@
 
 The pipeline is built around three principles. First, \textbf{conservative
 correctness}: a merge that should not happen is worse than a merge proposal
-that is correctly rejected, so the pipeline never forces an ambiguous decision
---- uncertainty is output explicitly as a third outcome (AMBIGUOUS). Second,
+that is correctly rejected, so the pipeline never forces an ambiguous decision;
+uncertainty is output explicitly as a third outcome (AMBIGUOUS). Second,
 \textbf{modularity}: each stage can be run independently, with intermediate
 results saved to disk and re-used across parameter sweeps. Third,
 \textbf{reproducibility}: all parameters are controlled through a single YAML
@@ -15,28 +15,89 @@ of this chapter describes each stage.
 
 \begin{figure}[H]
 \centering
-\begin{verbatim}
- Segmentation Volume
-        |
-        v
- [1] Fragment Extraction   -- TEASAR skeletonization, stitching
-        |
-        v
- [2] Graph Construction    -- skeleton-node KD-tree + endpoint pass
-        |
-        v
- [3] Candidate Generation  -- composite scoring, distance-conditioned weights
-        |
-        v
- [4] Conservative Validation -- 7 rules, 3-outcome (ACCEPT/REJECT/AMBIGUOUS)
-        |
-        v
- [5] Assembly              -- connected components, topology checks
-        |
-        v
- [6] Export                -- CSV, GraphML, SWC, Neuroglancer annotations
-\end{verbatim}
-\caption{Overview of the six-stage post-segmentation pipeline.}
+\begin{tikzpicture}[
+  node distance = 4.5mm,
+  every node/.style  = {align=center},
+  %--- node styles ---
+  io/.style = {
+    draw, ellipse,
+    minimum width = 62mm, minimum height = 9mm,
+    fill = gray!12, draw = gray!55, line width = 0.65pt,
+    font = \small\bfseries,
+  },
+  stage/.style = {
+    draw, rounded corners = 5pt,
+    minimum width = 90mm,
+    inner xsep = 10pt, inner ysep = 7pt,
+    fill = blue!7, draw = blue!35!black, line width = 0.65pt,
+  },
+  key/.style = {stage, fill = orange!7, draw = orange!40!black},
+  out/.style = {stage, fill = green!7, draw = green!45!black},
+  %--- arrow style ---
+  arr/.style = {
+    -{Stealth[length=5pt, width=4pt]},
+    line width = 0.9pt, color = gray!60!black,
+  },
+]
+
+%% Input node
+\node[io] (inp) {Segmentation Volume};
+
+%% Stage 1
+\node[stage, below=of inp] (s1) {
+  {\small\bfseries [1]\enspace Fragment Extraction}\\[2pt]
+  {\footnotesize\color{gray!55!black}
+    Connected-component extraction $\cdot$ TEASAR skeletonisation $\cdot$ chunk stitching}
+};
+
+%% Stage 2
+\node[stage, below=of s1] (s2) {
+  {\small\bfseries [2]\enspace Graph Construction}\\[2pt]
+  {\footnotesize\color{gray!55!black}
+    Skeleton-node KD-tree $\cdot$ optional long-range endpoint pass}
+};
+
+%% Stage 3
+\node[stage, below=of s2] (s3) {
+  {\small\bfseries [3]\enspace Candidate Generation}\\[2pt]
+  {\footnotesize\color{gray!55!black}
+    Composite scoring $\cdot$ distance-conditioned weights}
+};
+
+%% Stage 4 — highlighted as the key decision stage
+\node[key, below=of s3] (s4) {
+  {\small\bfseries [4]\enspace Conservative Validation}\\[2pt]
+  {\footnotesize\color{gray!55!black}
+    7 configurable rules $\cdot$ three outcomes: \textbf{accept} / \textbf{reject} / \textbf{ambiguous}}
+};
+
+%% Stage 5
+\node[stage, below=of s4] (s5) {
+  {\small\bfseries [5]\enspace Assembly}\\[2pt]
+  {\footnotesize\color{gray!55!black}
+    Connected-component merging $\cdot$ cycle detection $\cdot$ topology checks}
+};
+
+%% Stage 6 — output
+\node[out, below=of s5] (s6) {
+  {\small\bfseries [6]\enspace Export}\\[2pt]
+  {\footnotesize\color{gray!55!black}
+    CSV $\cdot$ GraphML $\cdot$ SWC $\cdot$ Neuroglancer annotations}
+};
+
+%% Arrows
+\draw[arr] (inp) -- (s1);
+\draw[arr] (s1)  -- (s2);
+\draw[arr] (s2)  -- (s3);
+\draw[arr] (s3)  -- (s4);
+\draw[arr] (s4)  -- (s5);
+\draw[arr] (s5)  -- (s6);
+
+\end{tikzpicture}
+\caption{Overview of the six-stage post-segmentation pipeline. Stage~4
+(Conservative Validation, shaded orange) is the primary decision point; it
+returns one of three explicit outcomes so that uncertainty is never silently
+discarded.}
 \label{fig:pipeline}
 \end{figure}
 
@@ -88,13 +149,13 @@ is surrounded by skeleton interior nodes, not endpoints.
 
 \paragraph{Skeleton-node graph (proposed method).}
 The \texttt{skeleton\_node} construction method indexes \emph{every} skeleton
-node --- leaf, branch, and interior --- from every fragment in a single global
+node (leaf, branch, and interior) from every fragment in a single global
 KD-tree. All node-to-node pairs within \texttt{max\_distance\_nm} receive an
 edge. This exposes interior splits at any point along an axon.
 
 On XPRESS, switching from the endpoint graph (at 300-voxel crop resolution) to
 the skeleton-node graph (at full-volume 699-voxel resolution) raised oracle
-coverage from 23\% to 79.8\% --- a 56.8-percentage-point gain in one change.
+coverage from 23\% to 79.8\%, a 56.8-percentage-point gain in one change.
 
 \paragraph{Long-range endpoint pass.}
 A supplemental second pass queries only degree-1 endpoints at a larger radius
@@ -153,7 +214,7 @@ the long-range subset.
 Every candidate is assigned one of three outcomes: ACCEPT (high confidence the
 merge is correct), REJECT (high confidence it is not), or AMBIGUOUS (insufficient
 evidence). Ambiguous candidates are preserved in the output and excluded from
-precision/recall computation --- they represent explicit uncertainty, not errors.
+precision/recall computation; they represent explicit uncertainty, not errors.
 
 \paragraph{Validation rules.}
 Seven rules are applied in sequence; any REJECT terminates evaluation of
@@ -210,7 +271,7 @@ accepted connections (weakest-link model).
 
 The pipeline exports results in up to five formats: CSV tables of fragment
 metadata and per-connection decisions (default, used for all XPRESS experiments),
-GraphML (disabled by default due to OOM risk at scale --- 815{,}000+ edges produce
+GraphML (disabled by default due to OOM risk at scale, as 815{,}000+ edges produce
 multi-gigabyte XML files), SWC neuron morphology, Neuroglancer annotation layers,
 and a corrected precomputed segmentation volume with accepted merges applied.
 
@@ -233,20 +294,50 @@ label IDs by voxel lookup, accounting for the volume's physical offset;
 (3) recording pairs of labels that are separated by a gap in the ground-truth
 trajectory but belong to the same axon.
 
-Two metrics are reported: \textbf{Coverage} (fraction of oracle pairs for which
+Two metrics are reported: \emph{Coverage} (fraction of oracle pairs for which
 the pipeline generates at least one candidate), measuring graph-construction
-reach, and \textbf{Recall} (fraction of covered pairs that are accepted),
+reach, and \emph{Recall} (fraction of covered pairs that are accepted),
 measuring validation accuracy. Precision is computed as the fraction of accepted
 candidates that correspond to oracle pairs.
 
 \section{Visual Validation Report}
+\label{sec:visual-validation}
 
 To support qualitative inspection of pipeline behavior, we developed a diagnostic
 report generator (\texttt{scripts/generate\_visual\_report.py}) that produces a
-multi-page PDF or inline GitHub images. For a stratified sample of candidates
-(high-confidence accepted, low-confidence accepted, borderline rejected, random
-rejected), each panel shows a 2D cross-section of the segmentation volume centered
-between the two fragment centroids: Fragment~A in red, Fragment~B in blue,
-surrounding context in gray, and a white arrow indicating the proposed connection
-direction. This allows rapid visual verification that the pipeline's geometric
-reasoning is consistent with the underlying data.
+multi-page PDF or inline GitHub images.  For a stratified sample of candidates
+(high-confidence accepted, low-confidence accepted, borderline rejected, oracle
+false negatives, and random rejected), each candidate occupies one row of
+three panels side-by-side:
+
+\begin{enumerate}
+  \item \textbf{Raw / Neutral:} Grayscale EM image (when available) or a
+        neutral segmentation view in which each segment receives a distinct
+        muted color but neither fragment is highlighted. Ground-truth skeleton
+        nodes and edges near the Z-slice are overlaid as yellow dots/lines,
+        showing where the manually traced neuron paths run through the tissue.
+        This panel provides tissue context without the pipeline's coloring
+        choices.
+
+  \item \textbf{Pipeline Prediction:} Colorized segmentation with Fragment~A
+        in red and Fragment~B in blue. A white arrow indicates the proposed
+        connection direction; an ACC/REJ badge (green/red) states the decision.
+        All five component scores (proximity, alignment, continuity, size,
+        composite) and the gap distance are shown in the panel title.
+
+  \item \textbf{Ground Truth:} Same colorized segmentation overlaid with the
+        oracle verdict.  When a skeleton file is provided, skeleton nodes
+        belonging to the axons passing through Fragments~A or~B are highlighted
+        in bright yellow, and a dashed line marks the oracle crossing for
+        positive pairs.  A large badge labels the outcome: \textbf{TP}
+        (correct accept), \textbf{FP} (false accept), \textbf{FN} (missed
+        merge), or \textbf{TN} (correct reject), together with an explicit
+        ``Oracle: SHOULD MERGE'' or ``Oracle: NO MERGE'' annotation.
+\end{enumerate}
+
+This layout gives a human inspector all information needed to assess whether
+the pipeline's decision is correct: the tissue context (Panel~1), the
+pipeline's geometric reasoning (Panel~2), and the ground-truth verdict with
+skeleton evidence (Panel~3).  Same-label candidates (two fragments from the
+same segment, which trivially score 1.0) are excluded from sampling to avoid
+contaminating the display with degenerate cases.

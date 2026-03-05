@@ -1,8 +1,8 @@
 \chapter*{Abstract}
 \addcontentsline{toc}{chapter}{Abstract}
 
-Large-scale connectomics --- the mapping of neural circuits from volumetric
-electron microscopy (EM) and X-ray nano-holotomography (XNH) data --- requires
+Large-scale connectomics (the mapping of neural circuits from volumetric
+electron microscopy (EM) and X-ray nano-holotomography (XNH) data) requires
 automated segmentation of three-dimensional image volumes into individual neuronal
 fragments. State-of-the-art automated segmenters produce fragments with high accuracy
 but inevitably introduce \emph{split errors}, where a single neuron is represented as
@@ -18,7 +18,7 @@ operates in six stages: fragment extraction with TEASAR skeletonization, graph
 construction via a skeleton-node KD-tree index, candidate generation with a
 four-factor composite scoring model, conservative three-outcome rule-based
 validation (ACCEPT / REJECT / AMBIGUOUS), structure assembly, and multi-format
-export. Critically, the pipeline treats uncertainty as a first-class output ---
+export. Critically, the pipeline treats uncertainty as a first-class output:
 ambiguous connections are preserved for human review rather than forced to a
 binary decision.
 
@@ -32,16 +32,20 @@ the artificial suppression of genuine long-range splits.
 
 Evaluated on the CREMI Drosophila EM benchmark, the pipeline achieves
 Precision = 1.000, Recall = 0.909, and F1 = 0.952. On the XPRESS mouse white
-matter XNH challenge --- the primary domain-appropriate benchmark --- the pipeline
-achieves Coverage = 83.5\% and Recall = 0.994 on the training volume (Experiment~17),
-and Coverage = 72.4\%, Recall = 0.885 on the fully held-out validation volume
-(Experiment~23), confirming that the learned thresholds generalize without
-overfitting. The pipeline is validated by 428 automated tests and includes a
-reproducible visual diagnostic report for per-candidate inspection.
+matter XNH challenge, the primary domain-appropriate benchmark, the best
+configuration (Experiment~24: direction-weighted scoring, MinGapRule disabled,
+SizeDiscrepancyRule relaxed) achieves Coverage = 78.7\% and Recall = 0.9958 on
+the training volume, with only 5 false negatives all attributable to the
+CurvatureRule. Applied unchanged to the fully held-out validation volume,
+the pipeline achieves Coverage = 81.3\% and Recall = 0.9879 (2 false negatives),
+confirming that the tuned thresholds generalize without overfitting. The pipeline
+is validated by 428 automated tests and includes a reproducible visual diagnostic
+report for per-candidate inspection.
 
-The main open challenge is precision: approximately 354{,}000 false-positive
-merge proposals are generated alongside 1{,}245 true positives at XPRESS scale
-(Precision $\approx$ 0.004), reflecting the difficulty of discriminating
+The main open challenge is precision: approximately 349{,}000 false-positive
+merge proposals are generated alongside 1{,}175 true positives at XPRESS scale
+(Precision $\approx$ 0.003), reflecting the difficulty of discriminating
 same-axon from different-axon long-range pairs in myelinated white matter using
-geometric features alone. Future work targets this gap through improved scoring
-and lightweight machine-learned filters.
+geometric features alone. A machine-learned post-filter achieves a $10\times$
+precision gain at recall 0.85, but cannot maintain recall $\geq 0.99$ with
+meaningful precision improvement.

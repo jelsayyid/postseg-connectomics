@@ -20,8 +20,12 @@
   colorlinks,bookmarksopen,bookmarksnumbered,citecolor=black,urlcolor=black,linkcolor=black
 ]{hyperref}
 
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning}
 \usepackage{titlesec}
 \usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{ragged2e}
 \usepackage{xcolor}
 
 % Customize chapter title format
@@ -34,6 +38,17 @@
 \addbibresource{references.bib}
 \hypersetup{linkcolor=black}
 
+% Float layout: prevent figures from overflowing into footer/page numbers.
+% A float occupying more than 85% of a text page goes to a dedicated float page.
+% At least 15% of a text page must be text before a bottom float is placed.
+\renewcommand{\floatpagefraction}{0.85}
+\renewcommand{\textfraction}{0.10}
+\renewcommand{\topfraction}{0.90}
+\renewcommand{\bottomfraction}{0.75}
+\setlength{\floatsep}{12pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{16pt plus 2pt minus 4pt}
+\setlength{\intextsep}{12pt plus 2pt minus 2pt}
+
 \begin{document}
 
 \input{titlepage}
@@ -41,16 +56,19 @@
 \chapter*{Acknowledgements}
 \addcontentsline{toc}{chapter}{Acknowledgements}
 
-I would like to express my sincere gratitude to Dr.\ Aaron T.\ Kuan and the Kuan
-Lab at Yale School of Medicine for providing the domain expertise, datasets, and
-mentorship that shaped this project. The XPRESS challenge data used in this work
-was provided through the challenge infrastructure maintained by the challenge
-organizers. The CREMI benchmark data is publicly available through the CREMI
-challenge.
+I would like to express my sincere gratitude to my advisors, Dr.\ Xiuye Chen
+(Yale Department of Computer Science) and Dr.\ Aaron T.\ Kuan (Kuan Lab, Yale
+School of Medicine). Dr.\ Chen provided invaluable guidance on computer science
+methodology, software design, and academic communication throughout the project.
+Dr.\ Kuan and the Kuan Lab provided the domain expertise, connectomics datasets,
+and neuroscience mentorship that shaped the direction and evaluation of this work.
 
-Special thanks to the Yale Department of Computer Science for the resources and
-academic environment that supported this work. This project was completed as part
-of the CPSC 4900 Senior Project requirement.
+The XPRESS challenge data used in this work was provided through the challenge
+infrastructure maintained by the challenge organizers. The CREMI benchmark data
+is publicly available through the CREMI challenge. Thanks also to the Yale
+Department of Computer Science for the resources and academic environment that
+supported this work. This project was completed as part of the CPSC 4900 Senior
+Project requirement.
 
 {
   \hypersetup{linkcolor=black}

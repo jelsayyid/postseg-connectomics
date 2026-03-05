@@ -1,6 +1,6 @@
 \section{Experiment Log Summary}
 
-A complete record of all 23 experiments is maintained in
+A complete record of all 25 experiments is maintained in
 \texttt{docs/EXPERIMENT\_LOG.md} in the project repository. Each entry
 records the configuration parameters changed, the pipeline run statistics
 (fragment count, candidate count, accepted/rejected counts), the evaluation
@@ -11,10 +11,11 @@ The repository is publicly available at:
 \url{https://github.com/jelsayyid/postseg-connectomics}
 \end{center}
 
-\section{XPRESS Configuration (Experiment 17)}
+\section{XPRESS Configuration (Experiment 24, Best Result)}
 
 The following YAML configuration produced the best reported XPRESS results
-(Coverage = 83.5\%, Recall = 0.994):
+(Training: Coverage = 78.7\%, Recall = 0.9958; Validation: Coverage = 81.3\%,
+Recall = 0.9879):
 
 \begin{verbatim}
 graph:
@@ -24,8 +25,8 @@ graph:
 
 candidates:
   max_endpoint_distance_nm: 600
-  weights: {proximity: 0.35, alignment: 0.30,
-             continuity: 0.25, size: 0.10}
+  weights: {proximity: 0.15, alignment: 0.45,
+             continuity: 0.30, size: 0.10}
   long_range_threshold_nm: 1000
   long_range_weights: {proximity: 0.00, alignment: 0.45,
                         continuity: 0.40, size: 0.15}
@@ -41,12 +42,17 @@ validation:
     - name: "DirectionReversalRule"
       params: {min_alignment: 0.0}
     - name: "SizeDiscrepancyRule"
-      params: {max_radius_ratio: 15.0}
+      params: {max_radius_ratio: 20.0}
     - name: "BranchingLimitRule"
       params: {max_branches: 5000}
     - name: "CompositeScoreRule"
       params: {reject_threshold: 0.15}
 \end{verbatim}
+
+Key differences from Experiment 17: short-range weights shift toward alignment
+(proximity 0.35$\to$0.15, alignment 0.30$\to$0.45); MinGapRule removed
+(\texttt{min\_gap\_nm} = 0, omitted from rules list); \texttt{max\_radius\_ratio}
+raised from 15.0 to 20.0.
 
 \section{Software and Reproducibility}
 

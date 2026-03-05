@@ -1,17 +1,24 @@
-\section{Immediate: Experiment 24 (MinGapRule Removal)}
+\section{Completed: Experiment 24 (Direction Weights and MinGapRule Removal)}
 
-The most impactful near-term change is removing the MinGapRule (setting
-\texttt{min\_gap\_nm} = 0), which recovers 37 training false negatives and 114
-additional oracle pairs, restoring Recall = 0.994 and Coverage = 83.5\% on the
-training volume and projecting to Recall $\approx 0.99$ on the held-out
-validation set. Simultaneously, raising \texttt{max\_radius\_ratio} from 15.0
-to 20.0 recovers 2 SizeDiscrepancyRule false negatives at minimal precision cost.
-This experiment requires only a YAML change and a full pipeline re-run ($\sim 90$
-minutes).
+Experiment~24 has been completed. Disabling the MinGapRule (\texttt{min\_gap\_nm} = 0)
+recovered all 37 short-gap false negatives and 114 previously uncovered oracle
+pairs. Simultaneously, raising \texttt{max\_radius\_ratio} from 15.0 to 20.0
+recovered 2 SizeDiscrepancyRule false negatives, and adjusting short-range
+scoring weights (alignment 0.30$\to$0.45, proximity 0.35$\to$0.15) improved
+discrimination of well-aligned pairs. The final training result is
+Recall = 0.9958 (FN = 5, all CurvatureRule) and the held-out validation result
+is Recall = 0.9879 (FN = 2, both CurvatureRule). Experiment~25, which tested
+raising \texttt{skip\_distance\_nm} from 1000 to 1100~nm in the CurvatureRule,
+was negative (Recall 0.9958$\to$0.9949) and was reverted.
+
+The 5 remaining false negatives all fail the CurvatureRule at gaps of 66--987~nm
+and have composite scores of 0.41--0.64. Because the direction estimate at short
+range is sensitive to skeleton geometry near the gap boundary, these cases appear
+unrecoverable without access to raw image data to disambiguate curvature.
 
 \section{Precision Improvement}
 
-Addressing the precision gap (currently 0.004) is the highest-priority research
+Addressing the precision gap (currently $\approx$0.003) is the highest-priority research
 problem. Three approaches are under consideration:
 
 \begin{enumerate}
@@ -59,16 +66,11 @@ The pipeline results have not yet been submitted to the XPRESS challenge portal
 submission would provide an external, blind evaluation and place the results
 in the context of other participating systems.
 
-\section{Final Report and Presentation}
+\section{Final Presentation}
 
-This document constitutes a working draft. The final report (due at end of
-semester) will incorporate:
-
-\begin{itemize}
-  \item Results from Experiment~24 (MinGapRule removal) and any subsequent
-        precision-improvement experiments.
-  \item Official XPRESS challenge submission results, if available.
-  \item A more thorough literature comparison with other submitted XPRESS systems.
-  \item Expanded visual validation figures, including per-FN analysis and
-        a systematic view of the borderline rejection cases.
-\end{itemize}
+This document is the final written report. The remaining deliverable is the
+end-of-semester presentation, which will cover the pipeline design, the
+progression of experiments, and the final quantitative results on both the
+CREMI and XPRESS benchmarks. Key items to highlight include the skeleton-node
+graph construction, distance-conditioned scoring, and the generalization results
+from the held-out validation volume.

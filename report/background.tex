@@ -55,7 +55,7 @@ Segmentation errors fall into two categories:
 \end{description}
 
 The XPRESS challenge reports that the baseline segmenter produces 1{,}499
-ground-truth merge pairs across the training volume --- each pair representing
+ground-truth merge pairs across the training volume, with each pair representing
 one split error that the pipeline must detect and propose to merge. The challenge
 is to accept as many true pairs as possible (high recall) while rejecting
 cross-axon false positives (high precision).
@@ -75,7 +75,7 @@ Skeleton endpoints (degree-1 nodes in the skeleton graph) are natural
 connection points: a true split typically produces two fragments whose free
 endpoints point toward each other across the gap. However, for long axons that
 are split in the interior (far from either end), the relevant skeleton nodes are
-\emph{interior} nodes, not endpoints --- a key observation that motivates the
+\emph{interior} nodes, not endpoints. This is a key observation that motivates the
 skeleton-node graph construction described in Chapter~\ref{ch:methodology}.
 
 \section{The XPRESS Challenge}

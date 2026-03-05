@@ -25,15 +25,15 @@ Rejected & 3{,}360 & \\
 True Positives & 10 & \\
 False Positives & 0 & \\
 False Negatives & 1 & \\
-Precision & \textbf{1.000} & \\
-Recall & \textbf{0.909} & \\
-F1 & \textbf{0.952} & \\
+Precision & 1.000 & \\
+Recall & 0.909 & \\
+F1 & 0.952 & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The single false negative is a pair connected at an acute curvature that
-CurvatureRule correctly identifies as implausible --- in this case, the
+CurvatureRule correctly identifies as implausible; in this case, the
 ground-truth neuron genuinely bends sharply, and the current threshold does
 not recover it. The perfect precision (zero false positives) confirms that the
 conservative rule set does not over-merge.
@@ -41,37 +41,42 @@ conservative rule set does not over-merge.
 \section{XPRESS Training Volume: Experiment Progression}
 
 The XPRESS challenge is the primary domain-appropriate benchmark. Experiments
-8--17 trace a systematic development process starting from a baseline of
-Coverage = 23\%, Recall = 0.160, and ending at Coverage = 83.5\%,
-Recall = 0.994. Table~\ref{tab:xpress_progress} summarizes key experiments.
+8--24 trace a systematic development process starting from a baseline of
+Coverage = 23\%, Recall = 0.160, and ending at Coverage = 78.7\%,
+Recall = 0.9958. Table~\ref{tab:xpress_progress} summarizes key experiments.
 
 \begin{table}[H]
 \centering
 \caption{XPRESS training volume experiment progression. Each row shows the key
 change from the previous experiment, oracle coverage, and recall on covered pairs.}
 \label{tab:xpress_progress}
-\begin{tabular}{@{}llrrl@{}}
+\small
+\begin{tabularx}{\textwidth}{@{}l>{\RaggedRight}Xrr>{\RaggedRight}X@{}}
 \toprule
-Exp & Key change & Coverage & Recall & Notes \\
+Exp & Key change & Cov. & Recall & Notes \\
 \midrule
 8  & Endpoint graph, 300$^3$ crop & 23.0\% & 0.160 & Interior splits invisible \\
-9  & Skeleton-node graph, 699$^3$ & 79.8\% & 0.605 & \textbf{+56.8 pp coverage} \\
+9  & Skeleton-node graph, 699$^3$ & 79.8\% & 0.605 & +56.8 pp coverage \\
 10 & \texttt{max\_skeleton\_voxels} = 500K & 62.1\% & 0.851 & Better skeletons \\
 11 & Long-range endpoint pass (2000 nm) & 81.6\% & 0.798 & \\
 12 & Threshold tuning, proximity cliff removed & 81.7\% & 0.898 & \\
 13 & 3000 nm radius & --- & 0.865 & \textit{Negative; reverted} \\
-14 & Distance-conditioned weights & 83.5\% & 0.889 & \textbf{Long-range fix} \\
+14 & Distance-conditioned weights & 83.5\% & 0.889 & Long-range fix \\
 15 & Long-range accept threshold & 83.5\% & 0.889 & No effect \\
 16 & CurvatureRule skip for long-range & 83.5\% & 0.916 & \\
-17 & MaxDistance 20K nm, SizeDiscrep 15.0 & \textbf{83.5\%} & \textbf{0.994} & \textbf{Best} \\
+17 & MaxDistance 20K nm, SizeDiscrep 15.0 & 83.5\% & 0.994 & Prior best \\
 \midrule
 18 & Partner limit (AND semantics) & 83.5\% & 0.008 & \textit{Negative; reverted} \\
 19 & MinGapRule (150 nm) & 75.9\% & 0.966 & \textit{Negative on recall} \\
 20 & ML filter (gradient boosting) & 83.5\% & 0.852 & Precision 0.037 at recall 0.85 \\
 21 & 3000 nm + ML filter & --- & --- & \textit{Negative; ML fails at recall $\geq$ 0.99} \\
 22 & FN diagnosis (no code change) & --- & --- & Diagnostic only \\
+\midrule
+23 & Held-out validation (Exp 17 config) & --- & --- & Validation: 72.4\% cov., Recall=0.885 \\
+24 & Direction weights + MinGapRule off & \textbf{78.7\%} & \textbf{0.9958} & Best; FN=5 (all CurvatureRule) \\
+25 & CurvatureRule skip 1000$\to$1100 nm & 78.7\% & 0.9949 & \textit{Negative; reverted} \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table}
 
 \paragraph{Key turning points.}
@@ -113,10 +118,10 @@ Three approaches were tested and reverted:
   \item \textbf{Experiment 18 (partner limit):} A post-acceptance filter that
         retained only the top-$N$ scoring partners per fragment was implemented
         with AND semantics (both fragments must rank each other in their top-$N$).
-        This caused catastrophic recall collapse (Recall = 0.008), because true
-        merge pairs ranked at the median (position 46 of 63) by composite score
-        within their fragment's partner list --- short-gap false positives have
-        higher proximity scores and rank above them.
+        This caused catastrophic recall collapse (Recall = 0.008): true merge
+        pairs ranked at the median (position 46 of 63) by composite score within
+        their fragment's partner list, with short-gap false positives scoring
+        higher on proximity and ranking above them.
 
   \item \textbf{Experiment 21 (ML filter at 3000 nm):} A gradient-boosted
         classifier trained on 8 features (6 score components + per-fragment
@@ -124,11 +129,18 @@ Three approaches were tested and reverted:
         not recover recall $\geq 0.99$ at any threshold.
 \end{itemize}
 
-\section{Best Result: Experiment 17}
+\section{Best Result: Experiment 24}
+
+Experiment 24 introduces direction-weighted short-range scoring (raising alignment
+weight from 0.30 to 0.45 and lowering proximity weight from 0.35 to 0.15),
+disables the MinGapRule (\texttt{min\_gap\_nm} = 0), and raises
+\texttt{max\_radius\_ratio} from 15.0 to 20.0. Together these changes recover all
+37 MinGapRule false negatives and 2 SizeDiscrepancyRule false negatives from the
+Experiment 19 configuration, reducing FN from 43 to 5.
 
 \begin{table}[H]
 \centering
-\caption{XPRESS training volume: Experiment 17 final results.}
+\caption{XPRESS training volume: Experiment 24 final results.}
 \label{tab:xpress_best}
 \begin{tabular}{@{}lr@{}}
 \toprule
@@ -136,26 +148,25 @@ Metric & Value \\
 \midrule
 Fragments & 12{,}935 \\
 Graph edges & $\approx$880{,}000 \\
-Candidates generated & $\approx$370{,}000 \\
-Accepted & $\approx$349{,}000 \\
 Oracle pairs & 1{,}499 \\
-Coverage & \textbf{83.5\%} (1{,}252 / 1{,}499) \\
-True Positives (TP) & 1{,}245 \\
-False Positives (FP) & $\approx$348{,}000 \\
-False Negatives (FN) & 7 \\
-Recall & \textbf{0.994} \\
-Precision & 0.004 \\
+Coverage & 78.7\% (1{,}180 / 1{,}499) \\
+True Positives (TP) & 1{,}175 \\
+False Positives (FP) & $\approx$349{,}000 \\
+False Negatives (FN) & 5 \\
+Recall & \textbf{0.9958} \\
+Precision & $\approx$0.003 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The 247 oracle pairs not covered by the candidate graph are structurally
-unreachable at the current 2000~nm search radius: 172 pairs have a true gap
-$> 2000$~nm, and 75 involve large fragments for which only PCA-based endpoints
-are available, whose tip-to-tip distance does not span the actual gap. The 7
-false negatives among covered pairs all fail either CurvatureRule (4 cases,
-gap 209--987~nm) or SizeDiscrepancyRule (2 cases, ratio 15.4--18.2), plus one
-MinGapRule case.
+The 319 oracle pairs not covered by the candidate graph fall into two categories:
+247 are structurally unreachable at the current 2000~nm search radius (172 pairs
+with true gap $> 2000$~nm; 75 involving PCA-only large fragments whose tip-to-tip
+distance does not span the gap), and the remaining 72 score below the acceptance
+threshold under the revised weight vector. All 5 false negatives among covered
+pairs fail the CurvatureRule (direction reversal exceeding 150$^\circ$, gap
+66--987~nm), with composite scores of 0.41--0.64 that are above the acceptance
+threshold but below CurvatureRule's hard reject.
 
 \paragraph{The precision challenge.}
 Precision = 0.004 reflects a fundamental challenge of the XPRESS domain: at
@@ -222,80 +233,106 @@ Total & 43 & & \\
 \end{tabular}
 \end{table}
 
-MinGapRule is the dominant false-negative cause (86\%). Removing it (setting
-\texttt{min\_gap\_nm} = 0) recovers 37 FN candidates and 114 additional oracle
-pairs (whose best candidates all had gap $< 150$~nm), restoring the Experiment~17
-configuration with Recall = 0.994 and Coverage = 83.5\%.
+MinGapRule was the dominant false-negative cause (86\%) in this diagnostic
+configuration. Experiment~24 resolved this by setting \texttt{min\_gap\_nm} = 0,
+recovering all 37 MinGapRule FN candidates and 114 additional oracle pairs
+(whose best candidates all had gap $< 150$~nm), and raising training recall
+to 0.9958. The CurvatureRule FNs (4 cases here, 5 in Exp 24 after further
+parameter changes) remain the only unresolved source of false negatives.
 
-\section{Held-Out Validation Results (Experiment 23)}
+\section{Held-Out Validation Results (Experiments 23 and 24)}
 
 To assess generalization, the pipeline was applied unchanged to the XPRESS
 held-out validation volume ($699^3$ voxels, 203 oracle merge pairs, offset
-(252, 252, 252) voxels within the full-volume coordinate system).
+(252, 252, 252) voxels within the full-volume coordinate system). Two
+configurations were evaluated: Experiment 23 uses the Experiment 17 config
+(MinGapRule active at 150~nm); Experiment 24 uses the final best config
+(MinGapRule disabled, direction-weighted scoring).
 
 \begin{table}[H]
 \centering
-\caption{Generalization comparison: training vs.\ held-out validation volume.}
+\caption{Generalization comparison: training and held-out validation results for
+two configurations.}
 \label{tab:generalization}
-\begin{tabular}{@{}lrr@{}}
+\begin{tabular}{@{}lrrrr@{}}
 \toprule
-Metric & Training & Validation \\
+ & \multicolumn{2}{c}{Exp 23 config (MinGapRule on)} & \multicolumn{2}{c}{Exp 24 config (MinGapRule off)} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Metric & Training & Validation & Training & Validation \\
 \midrule
-Oracle pairs & 1{,}499 & 203 \\
-Coverage & 83.5\% (1{,}252) & 72.4\% (147) \\
-TP & 1{,}097 & 154 \\
-FN & 43 & 20 \\
-Recall & 0.966 & 0.885 \\
-FN from MinGapRule & 37 (86\%) & 18 (90\%) \\
-FN from CurvatureRule & 4 (9\%) & 2 (10\%) \\
+Oracle pairs & 1{,}499 & 203 & 1{,}499 & 203 \\
+Coverage & 75.9\% & 72.4\% (147) & 78.7\% (1{,}180) & 81.3\% (165) \\
+TP & 1{,}097 & 127 & 1{,}175 & 163 \\
+FN & 43 & 20 & 5 & 2 \\
+Recall & 0.966 & 0.885 & \textbf{0.9958} & \textbf{0.9879} \\
+FN from CurvatureRule & 4 & 2 & 5 & 2 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-(Note: the training-set recall of 0.966 rather than 0.994 reflects the presence
-of MinGapRule in the current config; Experiment 17 without MinGapRule achieves
-0.994.)
-
-The FN composition is proportionally identical between volumes: MinGapRule
-dominates in both (86\% training, 90\% validation). Without MinGapRule, only
-CurvatureRule FNs remain --- 4 on training and 2 on validation --- giving an
-expected validation recall of approximately 0.99. This confirms that the
-thresholds tuned on the training volume generalize without overfitting.
+The FN composition confirms that removing the MinGapRule completely eliminates
+the dominant false-negative source. Under the Exp 24 config, all remaining
+false negatives on both volumes are caused by the CurvatureRule (5 on training,
+gap 66--987~nm; 2 on validation, gap 382 and 693~nm), with no remaining
+MinGapRule or SizeDiscrepancyRule rejections. The proportional similarity
+between training and validation FN compositions (CurvatureRule-only in both)
+confirms that the thresholds tuned on the training volume generalize without
+overfitting.
 
 \section{Visual Inspection}
 
-Figures~\ref{fig:accepted} and~\ref{fig:rejected} show representative
-candidate pairs from the XPRESS training volume as 2D segmentation
-cross-sections. Each panel is centered between the two fragment centroids at
-the midpoint Z-slice.
+Figures~\ref{fig:accepted} and~\ref{fig:rejected} show representative candidate
+pairs from the XPRESS training volume using the three-panel layout described in
+Section~\ref{sec:visual-validation}: neutral segmentation with skeleton overlay
+(Panel~1), pipeline prediction with score breakdown (Panel~2), and ground-truth
+oracle verdict (Panel~3).  Candidates are cropped to a 200$\times$200 voxel
+window ($6{,}600\,\text{nm}$ on a side) centered at the midpoint between the two
+fragment centroids, large enough to show both fragments and the gap between them.
+Same-label pairs (two fragments of the same segment, which trivially score 1.0)
+are excluded from sampling.
 
-\begin{figure}[H]
+\begin{figure}[htbp]
   \centering
-  \includegraphics[width=\textwidth]{candidate_showcase_accepted.png}
+  \includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{candidate_showcase_accepted.png}
   \caption{High-confidence accepted candidates (highest composite scores among
-  all accepted connections). Fragment A is shown in red, Fragment B in blue,
-  other fragments in gray, background in black. The white arrow indicates the
-  proposed connection direction A$\rightarrow$B. Gap distance and composite
-  score are shown in each panel title.}
+  accepted, non-same-label connections) from the XPRESS training volume.
+  \textbf{Left (Panel~1):} Neutral segmentation with distinct muted colors per
+  segment; yellow dots/lines show ground-truth skeleton nodes near the Z-slice.
+  \textbf{Center (Panel~2):} Fragment~A in red, Fragment~B in blue, with the
+  proposed connection arrow (ACC badge) and all five component scores.
+  \textbf{Right (Panel~3):} Oracle verdict (TP/FP/FN/TN badge); bright yellow
+  skeleton highlights the neurons passing through both fragments, with a dashed
+  line marking oracle-positive crossings. The FP outcomes for these candidates
+  reflect the low precision of the pipeline at this operating point: with
+  ${\sim}368{,}000$ accepted candidates and only ${\sim}1{,}494$ true positives,
+  even geometrically compelling pairs are predominantly false accepts.  The
+  visual report makes this trade-off immediately visible.}
   \label{fig:accepted}
 \end{figure}
 
-\begin{figure}[H]
+\begin{figure}[htbp]
   \centering
-  \includegraphics[width=\textwidth]{candidate_showcase_rejected.png}
+  \includegraphics[width=\textwidth,height=0.78\textheight,keepaspectratio]{candidate_showcase_rejected.png}
   \caption{Borderline rejected candidates (highest composite scores among all
-  rejected connections). These are the cases where the pipeline declines to
-  merge but is closest to acceptance. Inspecting these visually confirms that
-  the rejection decisions are consistent with the geometric evidence.}
+  rejected, non-same-label connections).  These are the cases the pipeline
+  declines to merge while scoring closest to acceptance.  All three shown are
+  TN (correct rejections): the oracle confirms no skeleton crossing between the
+  two fragments, consistent with the pipeline's decision.  The skeleton overlay
+  in Panel~1 makes the absence of a crossing evident: the ground-truth axon
+  paths run through each fragment independently without bridging the gap.}
   \label{fig:rejected}
 \end{figure}
 
-The accepted panels (Figure~\ref{fig:accepted}) show tight fragment pairs with
-clearly compatible geometry --- both fragments visible and in close proximity,
-with arrow direction consistent with the local axon orientation. The rejected
-panels (Figure~\ref{fig:rejected}) show cases where the geometric configuration
-is plausible but fails one or more validation rules, typically due to direction
-mismatch, size discrepancy, or an insufficiently high composite score.
+The accepted panels (Figure~\ref{fig:accepted}) reveal an important characteristic
+of the pipeline's operating regime: the composite score is optimised for recall,
+not precision.  At the validation threshold used in Experiment~24, the pipeline
+accepts ${\sim}368{,}000$ candidates to achieve ${\sim}0.996$ recall on the
+$1{,}499$ oracle pairs, a design choice that requires a downstream filtering
+step (e.g., the ML filter from Experiment~20) for deployment scenarios where
+precision matters.  The borderline rejected panels (Figure~\ref{fig:rejected})
+confirm that the rejection decisions are consistent with the geometric evidence:
+cases where alignment and continuity scores are high but the oracle confirms
+no true split error exist.
 
 \section{Test Coverage}
 

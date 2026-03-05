@@ -1,6 +1,6 @@
 # Connectomics Post-Segmentation Pipeline
 
-**CPSC 4900 Senior Project — Dr. Aaron T. Kuan Lab, Yale School of Medicine**
+**CPSC 4900 Senior Project — Advisors: Dr. Xiuye Chen (Yale CS) and Dr. Aaron T. Kuan (Yale School of Medicine)**
 
 A modular, conservative post-segmentation pipeline for large-scale connectomics data. Takes the output of automated segmentation workflows and produces graph-based connectivity representations suitable for downstream analysis, proofreading, and visualization in Neuroglancer.
 
@@ -36,26 +36,36 @@ Segmentation Volume → Fragment Extraction → Graph Construction → Candidate
 
 | Split | Oracle pairs | Coverage | Recall | Precision |
 |-------|-------------|----------|--------|-----------|
-| Training | 1,499 | **83.5%** (1,252 reached candidate stage) | **0.994** | 0.004 |
-| Held-out validation | 203 | **72.4%** (147 reached candidate stage) | **0.885** | — |
+| Training (Exp 24) | 1,499 | 78.7% (1,180 reached candidate stage) | **0.9958** | ~0.003 |
+| Held-out validation (Exp 24) | 203 | 81.3% (165 reached candidate stage) | **0.9879** | — |
 
 Full 699³ voxel volume, 33 nm isotropic resolution, myelinated cortical axons. Evaluation uses skeleton-based ground truth (XPRESS challenge oracle). This is the primary domain-appropriate benchmark — automated (imperfect) segmentation input, with true split errors along axon interiors that the pipeline must detect and propose to merge.
 
-The held-out validation volume was never seen during development; the ~9% recall gap from training to validation is primarily attributable to a gap-filter rule (`MinGapRule`) applied in the current config that rejects 37 genuine short-gap (< 150 nm) splits on the training volume. Without it, training recall is 0.994 and validation recall is approximately 0.99 (only CurvatureRule false negatives remain). Low precision on training reflects the open challenge of discriminating same-axon from different-axon long-range pairs at scale.
+The held-out validation volume was never seen during development. The 5 remaining training false negatives and 2 validation false negatives all fail the CurvatureRule at gaps of 66–987 nm where the direction estimate is unreliable; no MinGapRule or SizeDiscrepancyRule false negatives remain. Low precision reflects the fundamental challenge of discriminating same-axon from different-axon long-range pairs at scale.
 
 ## What the Pipeline Sees
 
-Each image below is a 2D cross-section of the segmentation volume centered on a candidate pair. **Fragment A** (red) and **Fragment B** (blue) are the two segments the pipeline is evaluating for a potential merge. Surrounding context fragments are gray; background is black. The white arrow shows the proposed connection direction. Panels are sampled from the XPRESS training volume (699³ voxels, 33 nm isotropic).
+Each row below shows **three panels for one candidate pair**, sampled from the XPRESS training volume (699³ voxels, 33 nm isotropic). Same-label pairs (two fragments of the same segment, which trivially score 1.0) are excluded.
 
-**High-confidence accepted** — the pipeline's strongest merge proposals (highest composite score among accepted candidates):
+| Panel | Content |
+|-------|---------|
+| **Left — Neutral** | Distinct muted color per segment (no A/B bias) + yellow skeleton node/edge overlay showing where ground-truth neuron paths run through the tissue |
+| **Center — Prediction** | Fragment A = red, Fragment B = blue; white arrow = proposed connection; ACC/REJ badge; all 5 component scores in title |
+| **Right — Ground Truth** | Oracle verdict badge (TP/FP/FN/TN); bright yellow = skeleton of the relevant neurons; dashed line = oracle crossing for true merge pairs; explicit "Oracle: SHOULD MERGE / NO MERGE" |
+
+**High-confidence accepted** — the pipeline's strongest merge proposals (highest composite score, excluding same-label):
 
 ![High-confidence accepted candidate pairs](docs/images/candidate_showcase_accepted.png)
 
-**Borderline rejected** — candidates the pipeline declined but which scored highest among rejections (most informative failure mode):
+> The FP outcomes shown above reflect the pipeline's low-precision operating point: ~368,000 candidates are accepted to achieve ~99.6% recall on the 1,499 oracle pairs. Geometrically compelling pairs are therefore predominantly false accepts at this threshold — a downstream ML filter (Experiment 20) is required when precision matters.
+
+**Borderline rejected** — candidates the pipeline declined but which scored highest among rejections:
 
 ![Borderline rejected candidate pairs](docs/images/candidate_showcase_rejected.png)
 
-A full per-candidate PDF report (cover page + scored panel grid across all four decision categories) can be regenerated at any time — see [Visual Validation Report](#visual-validation-report) below.
+> All three show TN (correct rejections): the skeleton overlay in Panel 1 confirms no ground-truth axon crosses between the two fragments.
+
+A full per-candidate PDF report (cover + all five sampling categories + GT oracle on every row) can be regenerated at any time — see [Visual Validation Report](#visual-validation-report) below.
 
 ## Key Features
 
@@ -177,24 +187,40 @@ scripts/
 
 ## Visual Validation Report
 
-`scripts/generate_visual_report.py` produces a multi-page PDF for any pipeline run, showing a representative sample of candidate pairs directly in the segmentation data.
+`scripts/generate_visual_report.py` produces a multi-page PDF. Each candidate row shows three panels: **Neutral + skeleton overlay** | **Pipeline prediction** | **Ground-truth oracle**. Five categories are sampled: high-confidence accepted, low-confidence accepted, borderline rejected, oracle false negatives, and random rejected.
 
 ```bash
+# XPRESS training + skeleton oracle
 python scripts/generate_visual_report.py \
     --output-dir output/xpress_training \
-    --seg /tmp/xpress_full.h5 \
+    --seg data/xpress/baseline_seg_training.h5 \
+    --seg-key volumes/segmentation_0.550 \
+    --skel data/xpress/XPRESS_training_skels.npz \
     --resolution 33 \
     --out output/xpress_training/visual_report.pdf
 
-# CREMI (anisotropic voxels: 40 nm z, 4 nm xy)
+# XPRESS validation set (requires seg-offset for the 252-voxel crop offset)
+python scripts/generate_visual_report.py \
+    --output-dir output/xpress_validation \
+    --seg data/xpress/baseline_seg_validation.h5 \
+    --seg-key volumes/segmentation_0.550 \
+    --skel data/xpress/XPRESS_validation_skels.npz \
+    --seg-offset 252 252 252 \
+    --resolution 33 \
+    --out output/xpress_validation/visual_report.pdf
+
+# CREMI (anisotropic voxels + raw EM image for Panel 1)
 python scripts/generate_visual_report.py \
     --output-dir output/cremi_sample_a \
     --seg data/cremi_crop.hdf \
+    --seg-key labels \
+    --raw data/sample_A_20160501.hdf \
+    --raw-key volumes/raw \
     --resolution 40 4 4 \
     --out output/cremi_sample_a/visual_report.pdf
 ```
 
-Each panel shows a 2D Z-slice crop centered between the two fragment centroids: Fragment A in red, Fragment B in blue, surrounding context in gray, with a connection arrow overlaid. Four categories are sampled automatically — high-confidence accepted, low-confidence accepted, borderline rejected, and random rejected — with `--n-samples` (default 6) per category.
+Key options: `--skel` (skeleton .npz for GT overlay), `--raw` / `--raw-key` (raw EM grayscale for Panel 1), `--seg-offset Z Y X` (voxel offset for sub-volume runs), `--crop-half` (default 100 → 200×200 voxel crop), `--z-half` (skeleton projection thickness, default 4 voxels), `--n-samples` (default 5 per category).
 
 ## Testing
 
