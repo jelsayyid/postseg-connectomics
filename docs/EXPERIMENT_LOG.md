@@ -2131,7 +2131,42 @@ CurvatureRule failures in both training and validation.
 **Action items:**
 - [x] Run Exp 24 config on validation volume — done (Recall=0.9879)
 - [x] Consider raising `skip_distance_nm` to ~1100nm — NEGATIVE (Exp 25), reverted
+- [x] Visual inspection of ground-truth TPs — done (see Visual TP Inspection below)
 - [ ] Consider XPRESS challenge portal submission
+
+### Visual TP Inspection — Exp 24 Training Run
+
+**Date:** 2026-03-06
+**Purpose:** Close the scientific validation loop. Across Experiments 1–25, all evaluation was
+metric-driven (coverage, recall, precision). No TP had ever been visually confirmed as a real
+biological split that the pipeline correctly proposed to merge. This inspection is the final
+non-automated layer of end-to-end validation: ground-truth says merge → pipeline proposes it →
+visual confirms it is an anatomically real split.
+
+**Method:** Added a `Ground-truth TP` sampling category to `scripts/generate_visual_report.py`
+that filters accepted candidates to those whose label pair appears in the ground-truth set (accepted
+AND GT-positive), then samples the top 5 by composite score. Ran on the Exp 24 training output:
+
+```bash
+python scripts/generate_visual_report.py \
+    --output-dir output/xpress_training \
+    --seg data/xpress/baseline_seg_training.h5 \
+    --seg-key volumes/segmentation_0.550 \
+    --skel data/xpress/XPRESS_training_skels.npz \
+    --resolution 33 --crop-half 100 --z-half 4 --n-samples 5 \
+    --out docs/visual_report_tp_inspection.pdf
+```
+
+**What to look for in each TP row (blue-bordered rows in the PDF):**
+1. Panel 1 (neutral + skeleton): yellow skeleton nodes/edges trace a neuron through both
+   fragment regions — confirming the ground-truth signal is geometrically real.
+2. Panel 2 (pipeline prediction): fragments A (red) and B (blue) should look morphologically
+   continuous — similar cross-section, aligned directions, small physical gap.
+3. Panel 3 (ground truth): bright yellow skeleton occupies both fragments; dashed yellow line
+   crosses the gap — confirming a genuine split in a single neuron, not a coincidental
+   proximity between two different axons.
+
+**Report:** [`docs/visual_report_tp_inspection.pdf`](visual_report_tp_inspection.pdf) (committed)
 
 **Tests:** 428 total, 0 failures.
 

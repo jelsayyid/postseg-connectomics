@@ -51,7 +51,7 @@ Each row below shows **three panels for one candidate pair**, sampled from the X
 |-------|---------|
 | **Left — Neutral** | Distinct muted color per segment (no A/B bias) + yellow skeleton node/edge overlay showing where ground-truth neuron paths run through the tissue |
 | **Center — Prediction** | Fragment A = red, Fragment B = blue; white arrow = proposed connection; ACC/REJ badge; all 5 component scores in title |
-| **Right — Ground Truth** | Oracle verdict badge (TP/FP/FN/TN); bright yellow = skeleton of the relevant neurons; dashed line = oracle crossing for true merge pairs; explicit "Oracle: SHOULD MERGE / NO MERGE" |
+| **Right — Ground Truth** | Ground-truth verdict badge (TP/FP/FN/TN); bright yellow = skeleton of the relevant neurons; dashed line = GT crossing for true merge pairs; explicit "GT: SHOULD MERGE / NO MERGE" |
 
 **High-confidence accepted** — the pipeline's strongest merge proposals (highest composite score, excluding same-label):
 
@@ -187,19 +187,32 @@ scripts/
 
 ## Visual Validation Report
 
-`scripts/generate_visual_report.py` produces a multi-page PDF. Each candidate row shows three panels: **Neutral + skeleton overlay** | **Pipeline prediction** | **Ground-truth oracle**. Five categories are sampled: high-confidence accepted, low-confidence accepted, borderline rejected, oracle false negatives, and random rejected.
+`scripts/generate_visual_report.py` produces a multi-page PDF. Each candidate row shows three panels: **Neutral + skeleton overlay** | **Pipeline prediction** | **Ground truth**. Six categories are sampled:
+
+| Category | Border color | Description |
+|----------|-------------|-------------|
+| **Ground-truth TP** | blue | Accepted AND GT-positive — the primary scientific check |
+| High-confidence accepted | green | Highest composite score among accepted |
+| Low-confidence accepted | orange | Lowest composite score among accepted |
+| Borderline rejected | red | Highest composite score among rejected (hard cases) |
+| GT FN | dark orange | Rejected but GT says should merge |
+| Random rejected | gray | Random sample of rejected |
+
+**The Ground-truth TP category is the most important scientific validation step:** it directly confirms that each pipeline-accepted merge is a real biological split — not just a metric count. For each blue-bordered row, verify that (1) the yellow skeleton in Panel 1 runs through both fragments, (2) the fragments look morphologically continuous in Panel 2, and (3) the skeleton visibly occupies both label regions in Panel 3 with the dashed GT crossing line.
+
+This inspection is the final non-automated layer of end-to-end validation and should be run after any experiment that changes accepted-candidate composition.
 
 ```bash
-# XPRESS training + skeleton oracle
+# XPRESS training — ground-truth TP inspection (primary use case)
 python scripts/generate_visual_report.py \
     --output-dir output/xpress_training \
     --seg data/xpress/baseline_seg_training.h5 \
     --seg-key volumes/segmentation_0.550 \
     --skel data/xpress/XPRESS_training_skels.npz \
     --resolution 33 \
-    --out output/xpress_training/visual_report.pdf
+    --out docs/visual_report_tp_inspection.pdf
 
-# XPRESS validation set (requires seg-offset for the 252-voxel crop offset)
+# XPRESS validation set (requires seg-offset for the 252-voxel offset)
 python scripts/generate_visual_report.py \
     --output-dir output/xpress_validation \
     --seg data/xpress/baseline_seg_validation.h5 \
@@ -207,7 +220,7 @@ python scripts/generate_visual_report.py \
     --skel data/xpress/XPRESS_validation_skels.npz \
     --seg-offset 252 252 252 \
     --resolution 33 \
-    --out output/xpress_validation/visual_report.pdf
+    --out docs/visual_report_tp_inspection_validation.pdf
 
 # CREMI (anisotropic voxels + raw EM image for Panel 1)
 python scripts/generate_visual_report.py \
@@ -220,7 +233,7 @@ python scripts/generate_visual_report.py \
     --out output/cremi_sample_a/visual_report.pdf
 ```
 
-Key options: `--skel` (skeleton .npz for GT overlay), `--raw` / `--raw-key` (raw EM grayscale for Panel 1), `--seg-offset Z Y X` (voxel offset for sub-volume runs), `--crop-half` (default 100 → 200×200 voxel crop), `--z-half` (skeleton projection thickness, default 4 voxels), `--n-samples` (default 5 per category).
+Key options: `--skel` (skeleton .npz for GT overlay — required for Ground-truth TP category), `--raw` / `--raw-key` (raw EM grayscale for Panel 1), `--seg-offset Z Y X` (voxel offset for sub-volume runs), `--crop-half` (default 100 → 200×200 voxel crop), `--z-half` (skeleton projection thickness, default 4 voxels), `--n-samples` (default 5 per category).
 
 ## Testing
 

@@ -107,10 +107,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 # ---------------------------------------------------------------------------
 
 CATEGORY_COLORS = {
+    "Ground-truth TP":          "#2166ac",
     "High-confidence accepted": "#1a9641",
     "Low-confidence accepted":  "#fdae61",
     "Borderline rejected":      "#d7191c",
-    "Oracle FN":                "#e07020",
+    "GT FN":                    "#e07020",
     "Random rejected":          "#999999",
 }
 
@@ -383,6 +384,23 @@ def _sample_candidates(
         pool = df.nlargest(n * 5, col) if largest else df.nsmallest(n * 5, col)
         return list(pool.head(n).iterrows())
 
+    # Ground-truth TP sample (accepted AND oracle-positive) — the main scientific check
+    if oracle is not None:
+        frag_info_lkp = fragments[["fragment_id", "label_id"]].set_index("fragment_id")
+        tp_rows = []
+        for _, row in acc_real.iterrows():
+            fa, fb = int(row["fragment_a"]), int(row["fragment_b"])
+            if fa not in frag_info_lkp.index or fb not in frag_info_lkp.index:
+                continue
+            la = int(frag_info_lkp.loc[fa, "label_id"])
+            lb = int(frag_info_lkp.loc[fb, "label_id"])
+            if (min(la, lb), max(la, lb)) in oracle:
+                tp_rows.append(row)
+        if tp_rows:
+            tp_pool = pd.DataFrame(tp_rows)
+            for _, row in _take(tp_pool, n_samples, largest=True):
+                out.append(("Ground-truth TP", row))
+
     # High-confidence accepted
     for _, row in _take(acc_real, n_samples, largest=True):
         out.append(("High-confidence accepted", row))
@@ -395,7 +413,7 @@ def _sample_candidates(
     for _, row in _take(rej_real, n_samples, largest=True):
         out.append(("Borderline rejected", row))
 
-    # Oracle FN sample (rejected but should merge) — requires oracle
+    # GT FN sample (rejected but should merge) — requires oracle
     if oracle is not None:
         frag_info_lkp = fragments[["fragment_id", "label_id"]].set_index("fragment_id")
         fn_rows = []
@@ -410,7 +428,7 @@ def _sample_candidates(
         if fn_rows:
             fn_pool = pd.DataFrame(fn_rows)
             for _, row in _take(fn_pool, n_samples, largest=True):
-                out.append(("Oracle FN", row))
+                out.append(("GT FN", row))
 
     # Random rejected (excluding same-label)
     n_rand = min(n_samples, len(rej_real))
@@ -600,7 +618,7 @@ def _draw_panel_gt(
         "FP": "FP — False accept",
         "FN": "FN — Missed merge",
         "TN": "TN — Correct reject",
-        "NA": "GT: N/A (no oracle)",
+        "NA": "GT: N/A (no ground-truth)",
     }.get(outcome, outcome)
     ax.text(w / 2, 4, outcome_label, fontsize=6.5, color="white", fontweight="bold",
             ha="center", va="top", zorder=8,
@@ -609,7 +627,7 @@ def _draw_panel_gt(
     # Merge verdict text at bottom
     if outcome != "NA":
         should_merge = outcome in ("TP", "FN")
-        verdict = "Oracle: SHOULD MERGE" if should_merge else "Oracle: NO MERGE"
+        verdict = "GT: SHOULD MERGE" if should_merge else "GT: NO MERGE"
         verdict_color = "#1a9641" if should_merge else "#d7191c"
         ax.text(w / 2, h - 3, verdict, fontsize=5.5, color=verdict_color,
                 fontweight="bold", ha="center", va="bottom", zorder=8,
@@ -949,9 +967,9 @@ def _write_cover(
         category_counts[cat] = category_counts.get(cat, 0) + 1
 
     oracle_note = (
-        f"Oracle: skeleton file loaded — TP/FP/FN/TN shown in Panel 3"
+        f"Ground-truth: skeleton file loaded — TP/FP/FN/TN shown in Panel 3"
         if skel_path
-        else "Oracle: no skeleton provided — Panel 3 shows GT: N/A"
+        else "Ground-truth: no skeleton provided — Panel 3 shows GT: N/A"
     )
     raw_note = (
         f"Raw EM: {raw_path}" if raw_path
@@ -985,11 +1003,11 @@ def _write_cover(
         "    Badge: ACC (green) or REJ (red).\n"
         "    Title shows all 5 score components + gap distance.\n\n"
         "  Panel 3 — Ground Truth:\n"
-        "    Same seg coloring + oracle overlay.\n"
-        "    TP (green)  = correct accept  — pipeline & oracle agree: merge\n"
-        "    FP (red)    = false accept    — pipeline merged, oracle says no\n"
-        "    FN (orange) = missed merge    — pipeline rejected, oracle says merge\n"
-        "    TN (gray)   = correct reject  — pipeline & oracle agree: no merge\n"
+        "    Same seg coloring + ground-truth overlay.\n"
+        "    TP (green)  = correct accept  — pipeline & GT agree: merge\n"
+        "    FP (red)    = false accept    — pipeline merged, GT says no\n"
+        "    FN (orange) = missed merge    — pipeline rejected, GT says merge\n"
+        "    TN (gray)   = correct reject  — pipeline & GT agree: no merge\n"
         "    Bright yellow skeleton = neuron(s) passing through fragment A or B.\n"
         "    Dashed yellow line = oracle crossing (for TP/FN pairs).\n\n"
         "─── How to inspect ───────────────────────────────────────────\n"

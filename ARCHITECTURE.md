@@ -466,7 +466,7 @@ class Exporter:
 
 **Responsibility:** Evaluate pipeline decisions against ground truth labels to produce precision, recall, and F1 metrics.
 
-**Evaluation approach:** Uses the segmentation `label_id` field as a merge oracle — two fragments with the same `label_id` should be merged; different `label_ids` should not. This approach is applicable when the input segmentation is a "split" oversegmentation of known ground truth labels.
+**Evaluation approach:** Uses the segmentation `label_id` field as ground truth — two fragments with the same `label_id` should be merged; different `label_ids` should not. This approach is applicable when the input segmentation is a "split" oversegmentation of known ground truth labels.
 
 **Three-outcome accounting:**
 
@@ -565,7 +565,7 @@ assembly:
 export:
   formats: ["graphml", "csv", "neuroglancer", "precomputed_seg"]
   output_dir: "/output/results"
-  evaluate_ground_truth: false  # Set true when label_id oracle is available
+  evaluate_ground_truth: false  # Set true when label_id ground truth is available
 
 logging:
   level: "INFO"
