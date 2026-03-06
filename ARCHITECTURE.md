@@ -674,7 +674,7 @@ postseg-connectomics/
 │   │   └── precomputed_segmentation.py  # Corrected segmentation in Neuroglancer format
 │   ├── evaluation/
 │   │   ├── __init__.py
-│   │   └── ground_truth.py      # Precision/recall/F1 against label_id oracle
+│   │   └── ground_truth.py      # Precision/recall/F1 against label_id ground truth
 │   ├── visualization/
 │   │   ├── __init__.py
 │   │   ├── plot_connections.py

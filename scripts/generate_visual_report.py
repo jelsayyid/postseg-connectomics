@@ -14,19 +14,19 @@ Each sampled candidate occupies one row of THREE panels side-by-side:
       Also shows all five component scores.
 
   Panel 3 — Ground Truth:
-      Same colorized segmentation with the oracle verdict overlaid:
+      Same colorized segmentation with the ground-truth verdict overlaid:
         TP (accepted + should merge)   — green badge, skeleton crossing shown
         FP (accepted + should not)     — red badge
         FN (rejected + should merge)   — orange badge, skeleton crossing shown
         TN (rejected + should not)     — gray badge
       Skeleton nodes/edges for the fragment pair's neurons are highlighted.
-      Without --skel the oracle overlay is omitted and "GT: N/A" is shown.
+      Without --skel the ground-truth overlay is omitted and "GT: N/A" is shown.
 
 Candidates sampled (configurable via --n-samples):
   - High-confidence accepted  : highest composite score among accepted
   - Low-confidence accepted   : lowest  composite score among accepted
   - Borderline rejected       : highest composite score among rejected (hard cases)
-  - Oracle FN sample          : false negatives from oracle (requires --skel)
+  - GT FN sample              : false negatives from ground truth (requires --skel)
   - Random rejected           : random sample of rejected
 
 Usage
@@ -39,7 +39,7 @@ Usage
         --resolution 33 \\
         --out output/xpress_training/visual_report.pdf
 
-    # XPRESS + skeleton oracle overlay
+    # XPRESS + skeleton ground-truth overlay
     python scripts/generate_visual_report.py \\
         --output-dir output/xpress_training \\
         --seg /tmp/xpress_full.h5 \\
@@ -75,7 +75,7 @@ Arguments
 --seg-key       HDF5 dataset key for segmentation (default: labels).
 --raw           Optional HDF5 volume for raw EM image (grayscale, Panel 1).
 --raw-key       HDF5 dataset key for raw image (default: volumes/raw).
---skel          Optional skeleton .npz file for ground truth oracle overlay.
+--skel          Optional skeleton .npz file for ground-truth overlay (enables TP/FP/FN/TN Panel 3).
 --seg-offset    Voxel offset of segmentation within full volume, z y x (default: 0 0 0).
 --resolution    Voxel size in nm: one value (isotropic) or three values z y x.
 --crop-half     Half-width of the 2D crop in voxels (default: 60 → 120×120 crop).
@@ -246,7 +246,7 @@ def _build_oracle(
         seg_offset,
     )
     del seg
-    print(f"  Oracle: {len(oracle):,} merge pairs", flush=True)
+    print(f"  Ground-truth: {len(oracle):,} merge pairs", flush=True)
     return oracle
 
 
@@ -1009,12 +1009,12 @@ def _write_cover(
         "    FN (orange) = missed merge    — pipeline rejected, GT says merge\n"
         "    TN (gray)   = correct reject  — pipeline & GT agree: no merge\n"
         "    Bright yellow skeleton = neuron(s) passing through fragment A or B.\n"
-        "    Dashed yellow line = oracle crossing (for TP/FN pairs).\n\n"
+        "    Dashed yellow line = GT crossing (for TP/FN pairs).\n\n"
         "─── How to inspect ───────────────────────────────────────────\n"
         "  1. Look at Panel 1 to understand the tissue context.\n"
         "  2. In Panel 2, check if fragments A and B plausibly belong\n"
         "     to the same neuron (do they touch? Are shapes continuous?).\n"
-        "  3. In Panel 3, verify the oracle: does the skeleton cross\n"
+        "  3. In Panel 3, verify the ground truth: does the skeleton cross\n"
         "     from one fragment into the other? For FP/FN cases, examine\n"
         "     whether the pipeline's score values explain the error.\n"
     )
@@ -1059,7 +1059,7 @@ def main() -> None:
     parser.add_argument("--seg-key", default="labels", help="HDF5 key for segmentation (default: labels)")
     parser.add_argument("--raw", default=None, help="Optional HDF5 raw EM volume for Panel 1")
     parser.add_argument("--raw-key", default="volumes/raw", help="HDF5 key for raw image (default: volumes/raw)")
-    parser.add_argument("--skel", default=None, help="Optional skeleton .npz for GT oracle overlay")
+    parser.add_argument("--skel", default=None, help="Optional skeleton .npz for ground-truth overlay (enables TP/FP/FN/TN in Panel 3)")
     parser.add_argument("--seg-offset", nargs=3, type=int, default=[0, 0, 0],
                         metavar=("Z", "Y", "X"),
                         help="Voxel offset of seg within full volume, z y x (default: 0 0 0)")

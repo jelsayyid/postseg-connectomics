@@ -46,7 +46,7 @@ fragments:
     dust_threshold: 100
   # Raised from 50,000 (2026-03) after Experiment 9 showed 1,148 fragments
   # (10.2% of 11,208) were PCA-only at the 50K cap, and 98.4% of uncovered
-  # oracle pairs involved at least one PCA-only fragment.  At 33nm isotropic,
+  # GT merge pairs involved at least one PCA-only fragment.  At 33nm isotropic,
   # 500K voxels ≈ cylinder 23µm long × 1.3µm diam — well within TEASAR's
   # practical range.  See "Skeleton benchmark" log lines for projected runtime.
   # Set to 0 to disable PCA fallback entirely (pure TEASAR for all fragments).
@@ -134,7 +134,7 @@ export:
   output_dir: "./output/xpress_training"
   include_rejected: false
   include_ambiguous: true
-  evaluate_ground_truth: false       # Uses label-ID oracle — not valid for XPRESS baseline seg
+  evaluate_ground_truth: false       # Uses label-ID ground truth — not valid for XPRESS baseline seg
                                      # Run xpress_evaluate.py separately for skeleton-based evaluation
 
 logging:

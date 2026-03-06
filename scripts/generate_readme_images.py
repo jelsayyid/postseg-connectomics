@@ -10,7 +10,7 @@ Each set shows a grid of 3 candidates × 3 panels:
              with skeleton node overlay (yellow dots) if --skel is provided.
   Panel 2 — Colorized prediction: Fragment A=red, Fragment B=blue,
              connection arrow, ACC/REJ badge, score breakdown.
-  Panel 3 — Ground truth: same seg with oracle badge (TP/FP/FN/TN),
+  Panel 3 — Ground truth: same seg with GT badge (TP/FP/FN/TN),
              highlighted skeleton paths for the relevant neurons,
              and merge verdict annotation.
 
@@ -490,7 +490,7 @@ def generate(output_dir, seg_path, seg_key, raw_path, raw_key, skel_path,
 
             if outcome != "NA":
                 should_merge = outcome in ("TP", "FN")
-                verdict = "Oracle: SHOULD MERGE" if should_merge else "Oracle: NO MERGE"
+                verdict = "GT: SHOULD MERGE" if should_merge else "GT: NO MERGE"
                 verdict_col = "#1a9641" if should_merge else "#d7191c"
                 ax3.text(crop_w / 2, crop_h - 3, verdict, fontsize=5.5, color=verdict_col,
                          fontweight="bold", ha="center", va="bottom", zorder=8,
@@ -542,7 +542,7 @@ def main():
     parser.add_argument("--seg-key", default="labels")
     parser.add_argument("--raw", default=None, help="Optional raw EM HDF5 volume")
     parser.add_argument("--raw-key", default="volumes/raw")
-    parser.add_argument("--skel", default=None, help="Optional skeleton .npz for GT oracle")
+    parser.add_argument("--skel", default=None, help="Optional skeleton .npz for ground-truth overlay")
     parser.add_argument("--seg-offset", nargs=3, type=int, default=[0, 0, 0],
                         metavar=("Z", "Y", "X"))
     parser.add_argument("--resolution", nargs="+", type=float, default=[33.0])

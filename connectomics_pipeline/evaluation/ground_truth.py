@@ -1,8 +1,8 @@
-"""Ground truth evaluation using label IDs as merge oracle.
+"""Ground truth evaluation using label IDs.
 
 For datasets where label_id represents the true neuron identity (e.g. CREMI),
 two fragments with the same label_id should be merged and two with different
-label_ids should not. This module scores pipeline decisions against that oracle.
+label_ids should not. This module scores pipeline decisions against that ground truth.
 """
 
 from __future__ import annotations

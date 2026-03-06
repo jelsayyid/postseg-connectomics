@@ -2,11 +2,11 @@
 # Exp 24 settings: Exp 17 weights rebalanced (proximity 0.35→0.15, alignment 0.30→0.45),
 # MinGapRule disabled (min_gap_nm=0), SizeDiscrepancyRule raised (15.0→20.0).
 # Validation data: baseline_seg_validation.h5 (699×699×699 vox, offset (252,252,252) in full volume)
-# GT skeletons: XPRESS_validation_skels.npz (203 oracle merge pairs)
+# GT skeletons: XPRESS_validation_skels.npz (203 GT merge pairs)
 #
 # NOTE: seg_offset_voxels=(252,252,252) is set in the evaluation script, not in this yaml.
 # The pipeline processes the segmentation in its local (0,0,0) coordinate system;
-# the offset is only needed when mapping skeleton positions to oracle label IDs.
+# the offset is only needed when mapping skeleton positions to segment label IDs.
 
 pipeline:
   name: "xpress-validation"

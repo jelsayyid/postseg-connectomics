@@ -346,7 +346,7 @@ This document tracks testing experiments, results, and observations as the pipel
 **Objective:** (1) Produce the first quantitative precision/recall evaluation of pipeline decisions against CREMI ground truth label IDs. (2) Implement and run the corrected precomputed segmentation export so pipeline output is loadable in Neuroglancer.
 
 **New modules added:**
-- `connectomics_pipeline/evaluation/ground_truth.py` — `evaluate_decisions()`: scores accepted/rejected/ambiguous decisions against label-ID oracle (same label_id = should merge)
+- `connectomics_pipeline/evaluation/ground_truth.py` — `evaluate_decisions()`: scores accepted/rejected/ambiguous decisions against label-ID ground truth (same label_id = should merge)
 - `connectomics_pipeline/export/precomputed_segmentation.py` — `build_corrected_volume()` + `write_precomputed()`: re-labels volume at connected-component level, applies union-find for accepted merges, writes Neuroglancer precomputed format
 - `connectomics_pipeline/io/volume_reader.py` — added `read_all()` to `BaseVolumeReader`
 - 33 new tests (349 total, 0 failures)
@@ -365,7 +365,7 @@ This document tracks testing experiments, results, and observations as the pipel
 | Accepted merges applied | 36 |
 | Corrected seg output | `output/cremi_sample_a/corrected_segmentation/` (32 MB, Neuroglancer precomputed) |
 
-**Ground truth evaluation (label-ID oracle):**
+**Ground truth evaluation (label-ID ground truth):**
 
 | Metric | Value |
 |--------|-------|
@@ -491,7 +491,7 @@ The CREMI evaluation (Experiments 5–7) used human-annotated Drosophila EM labe
 
 **Volume specs:** 1200×1200×1200 voxels at 33nm isotropic resolution (~39.6 µm³).
 **Skeleton format:** `.npz` files containing `{skel_id: nx.Graph}` dicts. Each graph node has a `position` attribute: `(x_nm, y_nm, z_nm)`.
-**Merge oracle:** An edge in the skeleton that spans two different segment IDs = a split error = the pipeline should accept a merge between those fragments.
+**Ground-truth merge pairs:** An edge in the skeleton that spans two different segment IDs = a split error = the pipeline should accept a merge between those fragments.
 
 ### Infrastructure added (2026-02-27)
 
@@ -587,7 +587,7 @@ The tasks conceptually overlap (split error correction = exactly what we do), bu
 - Full volume: 1200×1200×1200 voxels at 33 nm isotropic; evaluated on 699³ sub-volume (local offset (252,252,252))
 - Baseline segmentation: `baseline_seg_training.h5` (HTEM lab, Harvard)
 - Ground truth: `XPRESS_training_skels.npz` — 1 combined NetworkX graph, 31,508 nodes, 30,634 edges
-- Skeleton oracle: 225 cross-label edges (genuine segment split errors), 10,106/31,508 nodes mapped into sub-volume
+- Skeleton ground-truth: 225 cross-label edges (genuine segment split errors), 10,106/31,508 nodes mapped into sub-volume
 
 **Setup:**
 - Config: `configs/xpress_sample.yaml`
@@ -596,13 +596,13 @@ The tasks conceptually overlap (split error correction = exactly what we do), bu
 - Skeletonization: kimimaro (TEASAR) for fragments <50,000 voxels; PCA endpoints for larger (all 11,208 attempted, 11,160 skeletonized)
 - Graph construction: endpoint-based (`EndpointIndex` KD-tree), max distance 500 nm
 - Candidates generated: 18,826 (from 21,794 edges)
-- Ground truth evaluation: skeleton oracle via `evaluate_decisions_xpress()`
+- Ground truth evaluation: skeleton ground truth via `evaluate_decisions_xpress()`
 
 ---
 
 **Key Finding: Coverage Gap (Architectural Limitation)**
 
-Only **52 of 225 oracle pairs (23%)** ever appear as pipeline candidates. The remaining 173 pairs are completely invisible — their split boundaries occur at the **interior of long axon fragments**, not at TEASAR skeleton endpoints. TEASAR reports degree-1 (topological tip) nodes as endpoints; interior splits are not tip nodes and thus never generate endpoint-proximity candidates.
+Only **52 of 225 GT merge pairs (23%)** ever appear as pipeline candidates. The remaining 173 pairs are completely invisible — their split boundaries occur at the **interior of long axon fragments**, not at TEASAR skeleton endpoints. TEASAR reports degree-1 (topological tip) nodes as endpoints; interior splits are not tip nodes and thus never generate endpoint-proximity candidates.
 
 This 77% coverage gap is a **fundamental architectural limitation** of the endpoint-based graph construction for long straight axons. It cannot be fixed by threshold tuning.
 
@@ -610,9 +610,9 @@ This 77% coverage gap is a **fundamental architectural limitation** of the endpo
 
 **Iterative Tuning (this session):**
 
-| Run | Key Change | Accepted | Oracle TPs (of 52 candidates) | Notes |
+| Run | Key Change | Accepted | GT TPs (of 52 candidates) | Notes |
 |-----|-----------|---------|------|-------|
-| b7a49d3 | Lowered thresholds, endpoint graph | 826 | 1 | CompositeScoreRule=0.20 unlocked oracle pairs |
+| b7a49d3 | Lowered thresholds, endpoint graph | 826 | 1 | CompositeScoreRule=0.20 unlocked GT merge pairs |
 | run3 | CurvatureRule→skeleton tangent + SizeDiscrepancy 5.0 | 978 | 3 | Kimimaro nodes unordered → tangent garbage → worse |
 | run4 | Reverted to endpoint-centroid + CurvatureRule 90° | 2168 | 3 | BranchingLimitRule dominant hard-rejecter |
 | **run5 (best)** | **BranchingLimit 20 + CurvatureRule 120° + SizeDiscrepancy 5.0** | **13,221** | **36** | Best recall; poor precision |
@@ -620,20 +620,20 @@ This 77% coverage gap is a **fundamental architectural limitation** of the endpo
 **Best Result (run5):**
 
 ```
-Skeleton oracle:  225 merge pairs (genuine split errors)
+Skeleton ground-truth:  225 merge pairs (genuine split errors)
   As candidates:  52 / 225  (23% coverage)
   True Positives: 36 / 52   (69% of candidates accepted)
   Precision:      0.003   Recall: 0.160   F1: 0.006
 
 Accepted breakdown (13,221 total):
   Same-label (stitching artifacts):  1,167
-  Oracle cross-label TPs:               36
+  GT cross-label TPs:               36
   Other cross-label FPs:            12,018
 ```
 
-**Hard-Reject Rule Breakdown (why oracle candidates are rejected):**
+**Hard-Reject Rule Breakdown (why GT candidates are rejected):**
 
-| Rule | Threshold | Oracle pairs rejected |
+| Rule | Threshold | GT pairs rejected |
 |------|-----------|----------------------|
 | BranchingLimitRule | max_branches=5 (original) | 33 of 52 |
 | CurvatureRule (endpoint-centroid) | 90° | 11 of 52 |
@@ -641,25 +641,25 @@ Accepted breakdown (13,221 total):
 | SizeDiscrepancyRule | radius_ratio=5.0 (fixed) | 4 of 52 |
 
 Root causes identified:
-1. **BranchingLimitRule**: Trunk axons near split boundaries have many endpoint-graph neighbors (degree 5–17 measured); `max_branches=5` rejected 33/52 oracle pairs. Raising to 20 fixed these.
+1. **BranchingLimitRule**: Trunk axons near split boundaries have many endpoint-graph neighbors (degree 5–17 measured); `max_branches=5` rejected 33/52 GT merge pairs. Raising to 20 fixed these.
 2. **SizeDiscrepancyRule**: Trunk-to-stub fragment size ratios reach 13× in XPRESS; `max_radius_ratio=2.0` rejected 19/52. Raising to 5.0 reduced to 4.
 3. **CurvatureRule with unordered kimimaro nodes**: Attempting to use skeleton tangent (vs endpoint-centroid) made CurvatureRule worse — kimimaro node indices are not path-ordered, making `estimate_tangent` return random directions. Reverted to endpoint-centroid, increased to 120°.
 4. **Low proximity score**: Genuine XPRESS splits have 33–497 nm gaps → `exp(-3 × gap / max_distance)` gives 0.005–0.78; large gaps severely penalize composite_score, dragging it below acceptance thresholds.
 
 **Root Cause of Poor Precision:**
 
-Oracle pairs (composite_score mean 0.425) overlap extensively with non-oracle accepted pairs (mean 0.479). No threshold can cleanly separate them:
-- Non-oracle FPs have **short gaps** (mean 138 nm) → high proximity → high composite
-- Oracle TPs have **long gaps** (mean 306 nm) → low proximity → lower composite
+GT pairs (composite_score mean 0.425) overlap extensively with non-GT accepted pairs (mean 0.479). No threshold can cleanly separate them:
+- Non-GT FPs have **short gaps** (mean 138 nm) → high proximity → high composite
+- GT TPs have **long gaps** (mean 306 nm) → low proximity → lower composite
 
-The exponential proximity decay `exp(-3 × d / d_max)` is the primary cause of poor precision: it gives a 10× penalty for the typical oracle split gap (300 nm) vs a typical stitching-artifact gap (50 nm).
+The exponential proximity decay `exp(-3 × d / d_max)` is the primary cause of poor precision: it gives a 10× penalty for the typical GT split gap (300 nm) vs a typical stitching-artifact gap (50 nm).
 
 **Observations:**
 
 - Pipeline was designed and validated for CREMI-style data (short dendrites, splits at tips) — the endpoint-based graph excels there (F1=0.952 on CREMI)
 - XPRESS white matter is a fundamentally different regime: long (>10 µm) myelinated axons with rare true tips, many interior split errors
 - The 23% candidate coverage (52/225) is the hard ceiling for the current architecture; threshold tuning only improves recall within that ceiling
-- Skeleton oracle from XPRESS skeletons is correct and informative — problem is in candidate generation and scoring, not evaluation
+- Skeleton ground truth from XPRESS skeletons is correct and informative — problem is in candidate generation and scoring, not evaluation
 
 **Proposed Future Work:**
 1. **Interior-node matching**: Build the fragment graph using ALL skeleton nodes (not just TEASAR endpoints) within max_distance. This would expose interior splits as candidates. Cost: O(N_nodes²) queries, mitigated by KD-tree.
@@ -681,10 +681,10 @@ The exponential proximity decay `exp(-3 × d / d_max)` is the primary cause of p
 **Date:** 2026-02-28
 **Objective:** Implement and evaluate `skeleton_node` graph construction that indexes ALL skeleton nodes (not just TEASAR endpoints) to capture interior axon splits missed by the endpoint-only approach.
 
-**Motivation:** Experiment 8 confirmed that 77% of oracle pairs were never candidates because TEASAR endpoints are degree-1 topological tips — interior splits along long axons never appear as endpoint-graph edges. The `skeleton_node` method indexes every kimimaro node via a KD-tree and batch-queries them to find cross-fragment node pairs within `max_distance_nm`.
+**Motivation:** Experiment 8 confirmed that 77% of GT merge pairs were never candidates because TEASAR endpoints are degree-1 topological tips — interior splits along long axons never appear as endpoint-graph edges. The `skeleton_node` method indexes every kimimaro node via a KD-tree and batch-queries them to find cross-fragment node pairs within `max_distance_nm`.
 
 **Volume:** XPRESS full 699×699×699 vox at 33 nm isotropic (23.1 µm³); `baseline_seg_full.h5`.
-Oracle constructed from `XPRESS_training_skels.npz` skeleton edges crossing segment boundaries in this volume.
+Ground-truth constructed from `XPRESS_training_skels.npz` skeleton edges crossing segment boundaries in this volume.
 
 ### Run 9A: Pure skeleton_node graph (no PCA fallback correction)
 
@@ -695,8 +695,8 @@ Oracle constructed from `XPRESS_training_skels.npz` skeleton edges crossing segm
 **Graph construction:** 11,208 nodes, **23,496 edges** (was 21,794 endpoint edges)
 
 ```
-Oracle merge pairs (full volume):  1499
-Oracle pairs as candidates:          95 /  1499   (6.3% coverage)
+GT merge pairs (full volume):  1499
+GT pairs as candidates:          95 /  1499   (6.3% coverage)
 TP=78   FP=14395   FN=9   TN=2911   AMB+=19  AMB-=3084
 Precision: 0.0054   Recall: 0.0522   F1: 0.010
 Accepted: 14473   Rejected: 2920   Ambiguous: 3103
@@ -704,11 +704,11 @@ Accepted: 14473   Rejected: 2920   Ambiguous: 3103
 
 **Coverage diagnosis:**
 
-The oracle grew from 225 (300³ crop) to 1499 (699³ full volume), while covered pairs grew from 52 to 95 in absolute terms — a real but modest improvement. Coverage % dropped from 23% to 6.3% because the oracle grew 6.7× while covered pairs grew only 1.8×.
+The ground-truth set grew from 225 (300³ crop) to 1499 (699³ full volume), while covered pairs grew from 52 to 95 in absolute terms — a real but modest improvement. Coverage % dropped from 23% to 6.3% because the ground-truth set grew 6.7× while covered pairs grew only 1.8×.
 
 Root cause analysis of uncovered pairs:
 ```
-Uncovered oracle pairs: 1404
+Uncovered GT merge pairs: 1404
   At least one side has no TEASAR skeleton (PCA-only): 1381 / 1404 = 98.4%
   Both sides PCA-only:                                  951 / 1404 = 67.7%
 ```
@@ -737,7 +737,7 @@ BranchingLimitRule max_branches: 20   MaxDistanceRule max_distance_nm: 500
 ```
 
 ```
-Oracle pairs as candidates: 1196 / 1499  (79.8% coverage)
+GT pairs as candidates: 1196 / 1499  (79.8% coverage)
 TP=0    FP=1590    FN=1230    TN=220635   AMB+=1   AMB-=534
 Precision: 0.0000   Recall: 0.0000
 ```
@@ -745,12 +745,12 @@ Precision: 0.0000   Recall: 0.0000
 **Two validation blockers identified:**
 
 1. **BranchingLimitRule** (`max_branches=20`): Graph degree for large PCA fragments reaches 2,379 (degree_p99=561). BranchingLimitRule checks graph degree, not accepted count → rejects ALL candidates for high-degree fragments.
-2. **MaxDistanceRule** (`max_distance_nm=500`): Oracle pairs from PCA bbox edges use nearest-endpoint-pair distance for gap_distance. For two large PCA-only fragments, nearest endpoint pair ≈ 1,000–3,000 nm (PCA tips are at axon ends, not split boundary). MaxDistanceRule rejects all pairs > 500 nm.
+2. **MaxDistanceRule** (`max_distance_nm=500`): GT pairs from PCA bbox edges use nearest-endpoint-pair distance for gap_distance. For two large PCA-only fragments, nearest endpoint pair ≈ 1,000–3,000 nm (PCA tips are at axon ends, not split boundary). MaxDistanceRule rejects all pairs > 500 nm.
 
 ### Run 9C: skeleton_node + PCA bbox + loosened validation (final)
 
 **Config:**
-- `accept_threshold: 0.30` (was 0.45; oracle candidates mean composite = 0.34)
+- `accept_threshold: 0.30` (was 0.45; GT candidates mean composite = 0.34)
 - `reject_threshold: 0.15`
 - `BranchingLimitRule: max_branches: 5000`
 - `MaxDistanceRule: max_distance_nm: 5000`
@@ -761,7 +761,7 @@ Graph:       11,208 nodes, 398,423 edges
 Candidates:  223,990
 Accepted:     48,089   Rejected: 175,867   Ambiguous: 34
 
-Oracle pairs as candidates: 1196 / 1499  (79.8% coverage)
+GT pairs as candidates: 1196 / 1499  (79.8% coverage)
 TP=745   FP=47,344   FN=486   TN=175,381   AMB+=0   AMB-=34
 Precision: 0.0155   Recall: 0.605   F1: 0.030
 ```
@@ -782,11 +782,11 @@ Precision: 0.0155   Recall: 0.605   F1: 0.030
 
 **PCA endpoint fallback is the core bottleneck for XPRESS interior-split detection.** The `skeleton_node` method correctly indexes all TEASAR nodes, but 10.2% of fragments (those > 50K voxels) have no TEASAR skeleton and only 2 PCA proxy endpoints at their axon tips.
 
-**Coverage ceiling:** 79.8% of oracle pairs can be detected by bounding-box overlap — confirming that the split boundary IS within the overlapping bbox regions. The remaining 20.2% are either boundary fragments (partially outside the 699³ volume) or cases where bboxes don't overlap.
+**Coverage ceiling:** 79.8% of GT merge pairs can be detected by bounding-box overlap — confirming that the split boundary IS within the overlapping bbox regions. The remaining 20.2% are either boundary fragments (partially outside the 699³ volume) or cases where bboxes don't overlap.
 
 **Scoring limitation:** The current proximity score uses endpoint-to-endpoint distance as the gap metric. For PCA fragments, this distance (1,000–3,000 nm) is NOT the actual split gap (33–99 nm) — it's the distance between two axon tips. The scoring incorrectly penalizes genuine splits, dragging composite scores to ~0.34 even when the fragments should be merged.
 
-**Validation parameter sensitivity:** The BranchingLimitRule and MaxDistanceRule both require very loose settings (max_branches=5000, max_distance_nm=5000) to permit oracle pairs through. At these settings, precision degrades to 0.016 (more FPs from crossing axons).
+**Validation parameter sensitivity:** The BranchingLimitRule and MaxDistanceRule both require very loose settings (max_branches=5000, max_distance_nm=5000) to permit GT merge pairs through. At these settings, precision degrades to 0.016 (more FPs from crossing axons).
 
 ### Proposed Fixes (Priority Order)
 
@@ -854,7 +854,7 @@ Graph:       11,208 nodes, 143,767 edges (skeleton_node)
 Candidates:  84,052
 Accepted:    28,026   Rejected: 56,005   Ambiguous: 21
 
-Oracle pairs: 1,499
+GT pairs: 1,499
 Coverage: 931/1499 = 62.1%   (was 79.8% in Run 9C)
 TP=826  FP=27200  TN=55860  FN=145  AMB+=0  AMB-=21
 Precision: 0.029   Recall: 0.851   F1: 0.057
@@ -875,13 +875,13 @@ Precision: 0.029   Recall: 0.851   F1: 0.057
 
 ### Analysis
 
-**Recall improvement (0.605 → 0.851):** TEASAR now skeletonizes 1,085 more fragments. For oracle pairs involving those fragments, the split boundary is within max_distance_nm=500 of a TEASAR skeleton node, giving gap_distance ≈ 33–99 nm instead of 1,000–3,000 nm. Proximity score recovers from ~0.1–0.2 to ~0.85–1.0, lifting composite scores above the accept threshold.
+**Recall improvement (0.605 → 0.851):** TEASAR now skeletonizes 1,085 more fragments. For GT merge pairs involving those fragments, the split boundary is within max_distance_nm=500 of a TEASAR skeleton node, giving gap_distance ≈ 33–99 nm instead of 1,000–3,000 nm. Proximity score recovers from ~0.1–0.2 to ~0.85–1.0, lifting composite scores above the accept threshold.
 
-**Coverage drop (79.8% → 62.1%):** In Run 9C, the PCA bbox pass added edges for 1,148 large fragments by bounding-box overlap. With only 63 PCA fragments remaining, the bbox pass contributes far fewer edges. Some oracle pairs that were bbox-adjacent in Run 9C are now outside max_distance_nm=500 from each other's TEASAR skeleton nodes — likely because `max_distance_nm=500` is at the low end for pairs near interior splits. A follow-up should test raising `max_distance_nm` to 750–1000 nm or reintroducing a targeted bbox pass for the 63 remaining PCA fragments.
+**Coverage drop (79.8% → 62.1%):** In Run 9C, the PCA bbox pass added edges for 1,148 large fragments by bounding-box overlap. With only 63 PCA fragments remaining, the bbox pass contributes far fewer edges. Some GT merge pairs that were bbox-adjacent in Run 9C are now outside max_distance_nm=500 from each other's TEASAR skeleton nodes — likely because `max_distance_nm=500` is at the low end for pairs near interior splits. A follow-up should test raising `max_distance_nm` to 750–1000 nm or reintroducing a targeted bbox pass for the 63 remaining PCA fragments.
 
-**Acceptance rate among covered oracle pairs:** 88.7% (826/931) vs 62.3% in Run 9C — confirming that proper TEASAR skeleton nodes enable accurate proximity scoring.
+**Acceptance rate among covered GT merge pairs:** 88.7% (826/931) vs 62.3% in Run 9C — confirming that proper TEASAR skeleton nodes enable accurate proximity scoring.
 
-**Precision (0.016 → 0.029):** Improved because oracle pairs score higher (fewer FPs need to be accepted alongside them to pass threshold). Still limited by the loose validation parameters required to permit long-gap and high-degree connections.
+**Precision (0.016 → 0.029):** Improved because GT merge pairs score higher (fewer FPs need to be accepted alongside them to pass threshold). Still limited by the loose validation parameters required to permit long-gap and high-degree connections.
 
 ### Action Items
 
@@ -902,7 +902,7 @@ Precision: 0.029   Recall: 0.851   F1: 0.057
 ### Background: Run 10 Coverage Diagnosis
 
 Run 10 raised `max_skeleton_voxels` 50K→500K, improving Recall 0.605→0.851 but dropping
-coverage 79.8%→62.1% (568 missing oracle pairs). Root-cause breakdown of those 568 pairs:
+coverage 79.8%→62.1% (568 missing GT merge pairs). Root-cause breakdown of those 568 pairs:
 
 | Root Cause | Count | % | Description |
 |---|---|---|---|
@@ -929,7 +929,7 @@ which produces a manageable 324K long-range edges.
 - **Config:** `configs/xpress_sample.yaml` with `max_endpoint_search_nm: 2000`
 - **Volume:** full 699³ XPRESS training volume at 33 nm isotropic
 - **Validation thresholds:** same as Run 10 (accept=0.30, max_branches=5000, max_distance=5000, CompositeScoreRule.reject=0.15)
-- **Oracle offset:** `(0, 0, 0)` — the 699³ `xpress_full.h5` starts at the origin of the training volume
+- **Ground-truth offset:** `(0, 0, 0)` — the 699³ `xpress_full.h5` starts at the origin of the training volume
 
 ### Results
 
@@ -939,7 +939,7 @@ Graph:       11,208 nodes, 466,024 edges (skeleton_node)
 Candidates:  362,225
 Accepted:    186,353   Rejected: 175,846   Ambiguous: 26
 
-Oracle pairs: 1,499
+GT pairs: 1,499
 Coverage: 1,223/1,499 = 81.6%   (was 62.1% in Run 10)
 TP=976  FP=185,377  TN=175,599  FN=247  AMB+=0  AMB-=26
 Precision: 0.005   Recall: 0.798   F1: 0.010
@@ -964,15 +964,15 @@ Pipeline runtime: 1910 s (31.8 min)
 ### Analysis
 
 **Coverage recovered and surpassed the 79.8% Run 9C target (+1.8 pp).**
-The long-range pass adds 1223−971 = 252 previously-invisible oracle pairs as candidates.
+The long-range pass adds 1223−971 = 252 previously-invisible GT merge pairs as candidates.
 
-**Recall dropped (0.851→0.798) despite more oracle pairs being visible.** Root cause:
+**Recall dropped (0.851→0.798) despite more GT merge pairs being visible.** Root cause:
 
-- New long-range oracle pairs have genuine gaps of 500–2000 nm
+- New long-range GT merge pairs have genuine gaps of 500–2000 nm
 - `max_endpoint_distance_nm=400` → `proximity_score=0` for all these pairs
 - Default composite for a long-gap pair: `0.35×0 + 0.30×0.5 + 0.25×0.5 + 0.10×0.5 = 0.325`
-- `CurvatureRule` (120°) and size/composite thresholds reject a fraction (~40%) of the new oracle pairs
-- 102 new oracle pairs became FNs instead of TPs; 150 new oracle pairs became TPs
+- `CurvatureRule` (120°) and size/composite thresholds reject a fraction (~40%) of the new GT merge pairs
+- 102 new GT merge pairs became FNs instead of TPs; 150 new GT merge pairs became TPs
 
 **Why FP count exploded (27K→185K):** The 324K new long-range edges include many
 cross-axon pairs (different axons within 2000 nm endpoint distance) which also have
@@ -981,7 +981,7 @@ discriminative power to separate same-axon from different-axon long-gap pairs.
 
 ### Observations
 
-1. **Long-range pass is working**: 252 new oracle pairs reached candidate stage. The TEASAR endpoints at genuine split boundaries are within 2000 nm of each other's endpoints.
+1. **Long-range pass is working**: 252 new GT merge pairs reached candidate stage. The TEASAR endpoints at genuine split boundaries are within 2000 nm of each other's endpoints.
 2. **Validation tuning needed for long-gap regime**: The CurvatureRule, CompositeScore threshold, and accept_threshold are calibrated for short-gap (< 400 nm) pairs. For long-gap pairs (proximity=0), lower thresholds and possibly weighted alignment are needed.
 3. **Memory scaling**: At 5000 nm radius, long-range edges are ~18× more than at 2000 nm (2.88M vs 324K). The quadratic candidate count × validation cost hits OOM. The 2000 nm sweet spot balances coverage and memory.
 4. **Recall vs Coverage trade-off**: Run 10 (no long-range) had better recall (0.851) but lower coverage ceiling (62.1%). Run 11 has higher coverage (81.6%) but lower recall (0.798) due to strict validation on long-gap pairs.
@@ -989,7 +989,7 @@ discriminative power to separate same-axon from different-axon long-gap pairs.
 ### Action Items
 
 - [ ] Tune accept_threshold and scoring weights specifically for long-range candidates (proximity=0 regime): lower accept_threshold to 0.25 or reweight alignment/continuity
-- [ ] Investigate CurvatureRule failures on new long-range oracle pairs (102 FNs)
+- [ ] Investigate CurvatureRule failures on new long-range GT merge pairs (102 FNs)
 - [ ] Try `max_endpoint_search_nm: 3000` after tuning validation to avoid FN regression
 - [ ] Add per-fragment long-range edge cap to prevent memory explosion at larger radii
 
@@ -1000,7 +1000,7 @@ discriminative power to separate same-axon from different-axon long-gap pairs.
 **Date:** 2026-03-02
 **Objective:** Recover the recall regression introduced in Experiment 11 (0.851 → 0.798) without
 sacrificing the coverage gain (81.6%). Experiment 11 added a long-range endpoint pass (2000 nm)
-which recovered 252 new oracle pairs as candidates, but 102 of them were FNs (rejected). Root
+which recovered 252 new GT merge pairs as candidates, but 102 of them were FNs (rejected). Root
 causes: (1) CurvatureRule hard-rejects pairs where endpoint-centroid direction is unreliable for
 large fragments with interior splits; (2) long-range pairs have proximity=0 (gap > 400 nm) →
 composite ≈ 0.265–0.325, which is below accept_threshold=0.30.
@@ -1058,7 +1058,7 @@ The three targeted fixes together eliminated 122 of the 247 Exp 11 FNs:
 - CurvatureRule 120°→150°: fewer hard-rejects from unreliable endpoint-centroid direction
 
 Recall target ≥ 0.851 achieved: **0.898** (+0.100 vs Exp 11, +0.047 vs Exp 10).
-Coverage held at 81.7%. Precision unchanged at 0.005 (dominated by FPs from non-oracle candidates).
+Coverage held at 81.7%. Precision unchanged at 0.005 (dominated by FPs from non-GT candidates).
 
 ### Next Steps
 
@@ -1073,7 +1073,7 @@ Coverage held at 81.7%. Precision unchanged at 0.005 (dominated by FPs from non-
 
 **Date:** 2026-03-02
 **Objective:** Test whether raising the long-range endpoint search radius from 2000 → 3000 nm can
-recover oracle pairs in the 274 remaining uncoverable gap class without regressing the recall
+recover GT merge pairs in the 274 remaining uncoverable gap class without regressing the recall
 achieved in Experiment 12.
 
 ### Setup
@@ -1101,7 +1101,7 @@ Runtime: 41.3 min (2476 s). Long-range pass added 855,691 edges (vs. 324,678 at 
 
 **Negative result.** Coverage improved (+3.6%), but recall regressed (0.898 → 0.865).
 
-Root cause: 54 new oracle pairs became candidates (gaps 2000–3000 nm), but only 6 were accepted;
+Root cause: 54 new GT merge pairs became candidates (gaps 2000–3000 nm), but only 6 were accepted;
 48 were rejected. Acceptance rate = 11% vs. ~90% for the 2000 nm pairs. At d≥2000 nm:
 - proximity ≈ exp(−3×2000/600) ≈ 0 (max_endpoint_distance_nm=600 is the decay reference)
 - alignment and continuity scores are also unreliable for endpoint-centroid directions at these gaps
@@ -1111,13 +1111,13 @@ Config reverted to Exp 12 settings (2000 nm, graphml+csv). Exp 12 remains the be
 
 ### Analysis
 
-For oracle pairs with 2000–3000 nm gaps to have positive recall, the scoring system would need
+For GT merge pairs with 2000–3000 nm gaps to have positive recall, the scoring system would need
 either (a) proximity weight tuned to a much larger reference distance for long-range pairs, or
 (b) a separate scoring branch that ignores proximity entirely for d > 1000 nm. Neither is
 implemented; they are architectural changes, not config tuning.
 
 The precision regression (0.005 → 0.002) reflects the 2.3× candidate explosion: most new
-long-range edges connect non-oracle fragments, which now get accepted anyway (since accept_threshold
+long-range edges connect non-GT fragments, which now get accepted anyway (since accept_threshold
 is already low), swelling FPs.
 
 ### Next Steps
@@ -1177,7 +1177,7 @@ Runtime: 35.9 min (2152 s). Same graph (466K edges) as Exp 12.
 | Accepted    | 234,007             | 235,785              | +1,778 |
 | Ambiguous   | 26                  | 11                   | −15    |
 
-**Feature is working.** The +27 newly covered oracle pairs (1225→1252) were previously filtered out
+**Feature is working.** The +27 newly covered GT merge pairs (1225→1252) were previously filtered out
 by `min_composite_score=0.20` because proximity=0 suppressed their standard composite. With
 long-range weights, 13 of those 27 are now accepted (TP), and 14 are rejected by validation rules.
 Acceptance rate for new pairs: 13/27 = **48%**, versus 11% in Experiment 13 (no weight switching).
@@ -1189,7 +1189,7 @@ structural failure — the long-range weights need further tuning to push more o
 
 ### Analysis
 
-The existing 1225 oracle pairs from Exp 12 are unchanged (TP=1100, FN=125 exactly). All change
+The existing 1225 GT merge pairs from Exp 12 are unchanged (TP=1100, FN=125 exactly). All change
 comes from the 27 newly promoted candidates. The 14 new FNs are being hard-rejected by
 CurvatureRule or scoring below accept_threshold=0.25 even with the new weights — these pairs likely
 have genuinely poor TEASAR endpoint directions relative to the gap.
@@ -1303,7 +1303,7 @@ in Experiment 16.
 ### Root-Cause Diagnosis (from `/tmp/diagnose_fns.py`)
 
 After Experiment 16 (Recall=0.916, FN=105), a diagnostic script classified every covered-but-rejected
-oracle pair. Key findings:
+GT pair. Key findings:
 
 - **77/78 diagnosed FNs**: hard-rejected by a validation rule despite composite scores 0.255–0.630
 - **1/78**: composite just below accept_threshold (comp=0.233–0.243)
@@ -1358,12 +1358,12 @@ Runtime: 33.7 min (2021 s). Same graph as Exp 16 (466K edges), same 369K candida
 | Rejected    | 117,754                | 14,015                    | −103,739    |
 | Ambiguous   | 0                      | 0                         | 0           |
 
-**New best: Coverage=83.5%, Recall=0.994 — only 7 FNs remain of 1252 covered oracle pairs.**
+**New best: Coverage=83.5%, Recall=0.994 — only 7 FNs remain of 1252 covered GT merge pairs.**
 
 Coverage is unchanged at 83.5%: as expected, coverage depends on graph construction (unchanged),
 not validation rules.
 
-The 98 newly accepted oracle pairs were being hard-rejected by:
+The 98 newly accepted GT merge pairs were being hard-rejected by:
 - **MaxDistanceRule** (gap > 5000 nm): PCA bbox pairs where `_find_best_endpoint_pair()` returns
   the closest PCA endpoint tips (axon extremities) rather than the interior split boundary —
   gap_distance up to ~12000 nm for large fragments. With max_distance_nm raised to 20000, these
@@ -1372,19 +1372,19 @@ The 98 newly accepted oracle pairs were being hard-rejected by:
   (cube-root 5). XPRESS axons have documented 3–13× trunk-to-tip radius ratios = up to 2197×
   voxel count. With max_radius_ratio=15.0 (voxel ratio ≤ 3375×), these pairs are accepted.
 
-Accepted pairs jumped 103K (251K→355K) because the same rules also affect many non-oracle pairs.
+Accepted pairs jumped 103K (251K→355K) because the same rules also affect many non-GT merge pairs.
 Precision dropped slightly (0.005→0.004): the extra FPs are PCA bbox pairs between different axons
 that happen to have overlapping bounding boxes.
 
 ### Remaining 7 FNs
 
-7 oracle pairs are covered (in connections.csv as rejected). All 7 fail CompositeScoreRule
+7 GT merge pairs are covered (in connections.csv as rejected). All 7 fail CompositeScoreRule
 (composite < 0.15) or SizeDiscrepancyRule (radius_ratio > 15.0). These represent genuine
 corner cases where scoring cannot currently distinguish the correct merge.
 
-### 247 Uncovered Oracle Pairs
+### 247 Uncovered GT Pairs
 
-247 oracle pairs have no graph edge within the 2000 nm long-range search radius. These are
+247 GT merge pairs have no graph edge within the 2000 nm long-range search radius. These are
 genuine segmentation gaps wider than 2000 nm; recovering them would require a wider search
 radius (not feasible at current memory limits) or a different approach to long-range merging.
 
@@ -1439,7 +1439,7 @@ AND semantics ensures each fragment's degree is strictly ≤ max_partners.
 **FN diagnostic helper** (Priority 2, implemented alongside):
 
 `fn_diagnosis(candidates, store, oracle, report=None)` added to
-`evaluation/xpress_ground_truth.py`.  For each FN (rejected oracle pair), extracts the first
+`evaluation/xpress_ground_truth.py`.  For each FN (rejected GT pair), extracts the first
 REJECTED validation rule from the ValidationReport and returns a sorted list of dicts.  Use this
 to profile the 7 remaining FNs from Exp 17 and any new FNs introduced by the partner limit.
 
@@ -1477,7 +1477,7 @@ Runtime: 1972 s (32.9 min). Partner limit fired: 349,212 / 355,408 accepted cand
 **Why Recall collapsed:**
 
 The AND semantics requires a TP to rank in the top-2 by composite_score for BOTH endpoint
-fragments.  Profiling oracle pair ranks within each fragment's accepted partner list:
+fragments.  Profiling GT pair ranks within each fragment's accepted partner list:
 
 | Rank statistic | By composite_score | By alignment+continuity |
 |---------------|-------------------|------------------------|
@@ -1486,12 +1486,12 @@ fragments.  Profiling oracle pair ranks within each fragment's accepted partner 
 | Top-5 survival | 4.7% of TPs       | 5.8% of TPs            |
 
 **TPs rank near the bottom of each fragment's partner list.** Root cause: short-range FPs
-(gap ~99nm, proximity~0.61) have higher composite scores than oracle TPs (gap ~440nm,
+(gap ~99nm, proximity~0.61) have higher composite scores than GT TPs (gap ~440nm,
 proximity~0.11). FPs dominate every fragment's top-2 regardless of ranking key used.
 
 Score medians:
 ```
-                   Oracle TPs    Short-gap FPs   Winner
+                   GT TPs    Short-gap FPs   Winner
 composite_score    0.440         0.577           FPs (by 31%)
 alignment          0.514         0.571           FPs (by 11%)
 continuity         0.510         0.553           FPs (by 8%)
@@ -1501,7 +1501,7 @@ gap_distance       440 nm        99 nm           TPs (4.4×)
 
 No single score cleanly separates TPs from FPs because:
 - Validation already filtered the obvious bad candidates: surviving FPs look geometrically OK
-- Proximity rewards short gaps → systematically favours adjacent-axon FPs over true oracle TPs
+- Proximity rewards short gaps → systematically favours adjacent-axon FPs over true GT TPs
 - Even proximity-independent features (alignment, continuity) don't cleanly separate them
 
 **Why Precision also worsened:** With only 10 TPs in 6,196 accepted, precision = 10/6196 = 0.0016 —
@@ -1512,7 +1512,7 @@ No single score cleanly separates TPs from FPs because:
 **The partner limit strategy is architecturally sound but requires a feature that cleanly
 separates TPs from FPs.** No existing pipeline score achieves this for XPRESS.
 
-The only feature with clear separation is `gap_distance`: oracle pairs have median gap 440nm
+The only feature with clear separation is `gap_distance`: GT merge pairs have median gap 440nm
 vs short-range FPs at 99nm (4.4× ratio).  This motivates a gap-minimum filter rather than a
 score-based partner limit.
 
@@ -1561,7 +1561,7 @@ The 7 Exp 17 FNs fail `CompositeScoreRule` (composite < 0.15) or `SizeDiscrepanc
 **Date:** 2026-03-02
 **Objective:** Improve precision by rejecting short-gap candidates (gap < threshold) where
 different axons accidentally overlap.  Gap-distance was identified in Exp 18 as the strongest
-TP/FP separator (oracle pairs median 440nm vs short-range FPs 99nm).
+TP/FP separator (GT merge pairs median 440nm vs short-range FPs 99nm).
 
 ### New Rule: `MinGapRule`
 
@@ -1601,14 +1601,14 @@ FP gap-distance breakdown:
 
 The long-range endpoint pass (2000nm radius) generates ~285K candidate pairs where two
 **different** axons happen to have endpoints within 2000nm of each other.  These are
-cross-axon pairs with gaps of 500-2000nm — identical to genuine oracle TPs in gap_distance.
-No threshold on gap can remove them without simultaneously removing oracle TPs.
+cross-axon pairs with gaps of 500-2000nm — identical to genuine GT TPs in gap_distance.
+No threshold on gap can remove them without simultaneously removing GT TPs.
 
 The short-gap FP population (adjacency artifacts, gap < 150nm) is a secondary phenomenon:
 
 ```
 Total FPs removed at 150nm:  5,159  (1.5% of 354K)
-Oracle TPs removed:             36  (2.9% of 1245)
+GT TPs removed:             36  (2.9% of 1245)
 Net ratio:                     143 FPs per TP lost
 ```
 
@@ -1662,7 +1662,7 @@ New files added:
   - threshold=0.0 sentinel uses threshold stored in model file (chosen at training time)
 - `scripts/train_ml_filter.py` — offline training script:
   - Loads connections.csv + fragments.csv from pipeline output
-  - Builds merge oracle from skeleton ground truth
+  - Builds ground-truth merge set from skeleton
   - Maps candidates to oracle labels (TP=1 if label pair in oracle)
   - Trains `GradientBoostingClassifier(n_estimators=200, max_depth=4, subsample=0.8)`
     on accepted candidates only (ML filter is post-validation)
@@ -1861,7 +1861,7 @@ criterion from the YAML config is applied and the first blocker is reported.
 | Current YAML | MinGapRule(150nm) | **0.966** | **43** | ~75.9% (1138/1499) |
 
 MinGapRule was added in Exp 19 and retained despite the "negative" recall verdict. It causes
-37 additional FN candidates and uncovers ~114 oracle pairs whose only candidates have gap < 150nm.
+37 additional FN candidates and uncovers ~114 GT merge pairs whose only candidates have gap < 150nm.
 
 **FN breakdown (current config, 43 FN candidates):**
 
@@ -1884,7 +1884,7 @@ gap=6683nm  comp=0.403  cube_r=15.38  SizeDiscrep    frags 1832(728K)↔9270(200
 
 **Analysis per group:**
 
-*MinGapRule (37 FNs):* Genuine oracle merges with gap 33–148nm, high composite (0.51–0.86),
+*MinGapRule (37 FNs):* Genuine GT merges with gap 33–148nm, high composite (0.51–0.86),
 normal size ratios. MinGapRule targets adjacency FPs (different axons sharing a voxel boundary)
 but incorrectly rejects genuine short-gap splits.  Recoverable by setting `min_gap_nm: 0`
 (restores Exp 17 Recall=0.994, Coverage=83.5%).
@@ -1894,12 +1894,12 @@ Fragment 2938 has only 1,004 voxels — endpoint direction estimate is unreliabl
 Raising max_curvature_deg or lowering skip_distance_nm risks broad FPs. **Hard cases.**
 
 *SizeDiscrepancyRule (2 FNs):* Tiny stub fragments (100–200 vox) vs large trunks (~600K–728K
-vox); cube-root ratio 15.4 and 18.2.  Both are genuine oracle merges.  Raising `max_radius_ratio`
+vox); cube-root ratio 15.4 and 18.2.  Both are genuine GT merges.  Raising `max_radius_ratio`
 to 20.0 would recover these two. **Low risk, targeted fix; attempt as Exp 23.**
 
 **Recommendations (priority order):**
 
-1. Restore Recall=0.994: set `min_gap_nm: 0` — recovers 37 FN candidates + 114 oracle pairs.
+1. Restore Recall=0.994: set `min_gap_nm: 0` — recovers 37 FN candidates + 114 GT merge pairs.
 2. Raise `max_radius_ratio: 15.0 → 20.0` — recovers 2 SizeDiscrepancy FNs.  Low risk.
 3. CurvatureRule FNs: unrecoverable without disabling the rule broadly.
 
@@ -1917,7 +1917,7 @@ to test generalization — all 22 prior experiments tuned on the training volume
 - Validation segmentation: `baseline_seg_validation.h5` (699³ voxels, 107 MB)
   - HDF5 key: `/volumes/segmentation_0.550`
   - Converted to `/tmp/xpress_validation.h5` with `labels` key for pipeline compatibility
-- Ground truth: `XPRESS_validation_skels.npz` (203 oracle merge pairs)
+- Ground truth: `XPRESS_validation_skels.npz` (203 GT merge pairs)
 - Seg offset: `(252, 252, 252)` voxels — confirmed by 91.5% skeleton-node hit rate on labeled voxels
 - Config: `configs/xpress_validation.yaml` (identical settings to `xpress_sample.yaml`, pointing
   to validation volume)
@@ -1938,7 +1938,7 @@ to test generalization — all 22 prior experiments tuned on the training volume
 
 | Metric | Training (Exp 22 config) | Validation (Exp 23) |
 |--------|--------------------------|---------------------|
-| Oracle pairs | 1,499 | 203 |
+| GT pairs | 1,499 | 203 |
 | Coverage | 75.9% (1,138 / 1,499) | 72.4% (147 / 203) |
 | TP | 1,097 | 154 |
 | FP | ~342,585 | 443,491 |
@@ -1946,7 +1946,7 @@ to test generalization — all 22 prior experiments tuned on the training volume
 | Recall | 0.966 | 0.885 |
 | Precision | 0.0032 | 0.000347 |
 
-**Note on Precision:** The validation volume has far fewer oracle pairs (203 vs 1,499) but a
+**Note on Precision:** The validation volume has far fewer GT merge pairs (203 vs 1,499) but a
 similar total candidate volume (~444K), so precision appears lower by construction.  The key
 generalization metric is **Recall** and **Coverage**, not raw precision.
 
@@ -1972,7 +1972,7 @@ The FN composition is consistent: MinGapRule dominates in both volumes.
 
 1. **Generalization is solid.** Recall drops from 0.966 → 0.885 on the held-out volume, a
    ~0.08 gap. Exp 17 (no MinGapRule) Recall on training was 0.994; the analogous validation
-   result would be approximately (20 − 18) FNs = 2 FNs → Recall ≈ 0.99 on the validation oracle
+   result would be approximately (20 − 18) FNs = 2 FNs → Recall ≈ 0.99 on the validation ground truth
    (only CurvatureRule FNs remain without MinGapRule).
 
 2. **Coverage is stable.** 72.4% validation vs 75.9% training (≈3.5% gap), well within the
@@ -2047,9 +2047,9 @@ The generation threshold is effectively set by the alignment floor, not the comp
 
 | Metric | Exp 22-23 config | Exp 24 | Delta |
 |--------|-----------------|--------|-------|
-| Oracle pairs | 1,499 | 1,499 | — |
+| GT pairs | 1,499 | 1,499 | — |
 | Coverage | 75.9% (1,138) | 78.7% (1,180) | +2.8pp |
-| TP (unique oracle pairs accepted) | ~1,097 | 1,175 | +78 |
+| TP (unique GT merge pairs accepted) | ~1,097 | 1,175 | +78 |
 | FN (covered, rejected) | ~43 | 5 | -38 |
 | Recall (within covered pairs) | 0.966 | 0.9958 | +2.96pp |
 | FP connections | ~342,585 | 366,933 | +24,348 |
@@ -2106,9 +2106,9 @@ a sharp bend that the pipeline correctly treats as suspicious.
 
 | Metric | Exp 23 (old config) | Exp 24 (new config) | Delta |
 |--------|--------------------|--------------------|-------|
-| Oracle pairs | 203 | 203 | — |
+| GT pairs | 203 | 203 | — |
 | Coverage | 72.4% (147) | 81.3% (165) | +8.9pp |
-| TP (unique oracle pairs accepted) | ~154 | 163 | +9 |
+| TP (unique GT merge pairs accepted) | ~154 | 163 | +9 |
 | FN (covered, rejected) | 20 | 2 | -18 |
 | Recall | 0.885 | **0.9879** | +10.3pp |
 | Accepted connections | 443,682 | 459,113 | +15,431 |

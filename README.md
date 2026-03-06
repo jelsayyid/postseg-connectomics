@@ -30,16 +30,16 @@ Segmentation Volume → Fragment Extraction → Graph Construction → Candidate
 | Recall | **0.909** |
 | F1 | **0.952** |
 
-64×256×256 voxel crop, 40×4×4 nm resolution, ~800 neuron labels. Evaluation uses a label-ID oracle (pairs with the same GT label that appear as separate fragments). Best understood as a pipeline correctness check rather than a realistic proofreading benchmark, since the input is human-annotated labels rather than automated segmentation output.
+64×256×256 voxel crop, 40×4×4 nm resolution, ~800 neuron labels. Evaluation uses label-ID ground truth (pairs with the same GT label that appear as separate fragments). Best understood as a pipeline correctness check rather than a realistic proofreading benchmark, since the input is human-annotated labels rather than automated segmentation output.
 
 ### XPRESS Challenge (Mouse White Matter XNH)
 
-| Split | Oracle pairs | Coverage | Recall | Precision |
+| Split | GT pairs | Coverage | Recall | Precision |
 |-------|-------------|----------|--------|-----------|
 | Training (Exp 24) | 1,499 | 78.7% (1,180 reached candidate stage) | **0.9958** | ~0.003 |
 | Held-out validation (Exp 24) | 203 | 81.3% (165 reached candidate stage) | **0.9879** | — |
 
-Full 699³ voxel volume, 33 nm isotropic resolution, myelinated cortical axons. Evaluation uses skeleton-based ground truth (XPRESS challenge oracle). This is the primary domain-appropriate benchmark — automated (imperfect) segmentation input, with true split errors along axon interiors that the pipeline must detect and propose to merge.
+Full 699³ voxel volume, 33 nm isotropic resolution, myelinated cortical axons. Evaluation uses skeleton-based ground truth (XPRESS challenge). This is the primary domain-appropriate benchmark — automated (imperfect) segmentation input, with true split errors along axon interiors that the pipeline must detect and propose to merge.
 
 The held-out validation volume was never seen during development. The 5 remaining training false negatives and 2 validation false negatives all fail the CurvatureRule at gaps of 66–987 nm where the direction estimate is unreliable; no MinGapRule or SizeDiscrepancyRule false negatives remain. Low precision reflects the fundamental challenge of discriminating same-axon from different-axon long-range pairs at scale.
 
@@ -57,7 +57,7 @@ Each row below shows **three panels for one candidate pair**, sampled from the X
 
 ![High-confidence accepted candidate pairs](docs/images/candidate_showcase_accepted.png)
 
-> The FP outcomes shown above reflect the pipeline's low-precision operating point: ~368,000 candidates are accepted to achieve ~99.6% recall on the 1,499 oracle pairs. Geometrically compelling pairs are therefore predominantly false accepts at this threshold — a downstream ML filter (Experiment 20) is required when precision matters.
+> The FP outcomes shown above reflect the pipeline's low-precision operating point: ~368,000 candidates are accepted to achieve ~99.6% recall on the 1,499 GT merge pairs. Geometrically compelling pairs are therefore predominantly false accepts at this threshold — a downstream ML filter (Experiment 20) is required when precision matters.
 
 **Borderline rejected** — candidates the pipeline declined but which scored highest among rejections:
 
@@ -65,7 +65,7 @@ Each row below shows **three panels for one candidate pair**, sampled from the X
 
 > All three show TN (correct rejections): the skeleton overlay in Panel 1 confirms no ground-truth axon crosses between the two fragments.
 
-A full per-candidate PDF report (cover + all five sampling categories + GT oracle on every row) can be regenerated at any time — see [Visual Validation Report](#visual-validation-report) below.
+A full per-candidate PDF report (cover + all sampling categories + GT verdict on every row) can be regenerated at any time — see [Visual Validation Report](#visual-validation-report) below.
 
 ## Key Features
 
@@ -167,7 +167,7 @@ connectomics_pipeline/
 ├── assembly/        # Structure assembly, cycle detection, ambiguity flagging
 ├── postprocess/     # Post-validation filters (ML-based false-positive filter)
 ├── export/          # GraphML, CSV, SWC, Neuroglancer annotations, precomputed seg
-├── evaluation/      # Ground truth evaluation: label-ID oracle, XPRESS skeleton oracle
+├── evaluation/      # Ground truth evaluation: label-ID and XPRESS skeleton ground truth
 ├── visualization/   # Diagnostic plots and Neuroglancer annotation layers
 └── utils/           # Config loading, types, spatial math, logging
 

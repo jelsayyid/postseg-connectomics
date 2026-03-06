@@ -537,7 +537,7 @@ class Pipeline:
         if self.config.export.evaluate_ground_truth and self.candidates:
             gt = evaluate_decisions(self.candidates, self.store)
             logger.info(
-                "Ground truth eval (label-ID oracle): "
+                "Ground truth eval (label-ID): "
                 "precision=%.3f recall=%.3f F1=%.3f "
                 "(TP=%d FP=%d TN=%d FN=%d | ambiguous: %d same-label, %d diff-label)",
                 gt["precision"],

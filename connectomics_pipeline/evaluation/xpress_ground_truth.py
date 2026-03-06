@@ -1,4 +1,4 @@
-"""Ground truth evaluation using XPRESS skeleton graphs as merge oracle.
+"""Ground truth evaluation using XPRESS skeleton graphs.
 
 For the XPRESS challenge dataset (X-ray nanotomography of mouse white matter),
 ground truth is provided as NetworkX skeleton graphs rather than voxel label IDs.
@@ -167,7 +167,7 @@ def build_merge_oracle(
                 merge_pairs.add((min(seg_u, seg_v), max(seg_u, seg_v)))
 
     logger.info(
-        "XPRESS oracle: %d skeleton graphs, %d/%d nodes mapped to volume, %d merge pairs",
+        "XPRESS ground-truth: %d skeleton graphs, %d/%d nodes mapped to volume, %d merge pairs",
         len(skeleton_graphs),
         mapped_nodes,
         total_nodes,
@@ -184,11 +184,11 @@ def evaluate_decisions_xpress(
     """Score pipeline decisions against XPRESS skeleton ground truth.
 
     A candidate is a *positive* (should merge) when the (label_id_a, label_id_b)
-    pair appears in the skeleton-derived merge oracle. Ambiguous decisions are
+    pair appears in the skeleton-derived ground truth. Ambiguous decisions are
     tallied separately and excluded from precision/recall.
 
     This is the XPRESS analogue of evaluate_decisions() in ground_truth.py,
-    replacing the label-ID oracle with a skeleton-edge-derived oracle.
+    replacing the label-ID ground truth with a skeleton-edge-derived ground truth.
 
     Args:
         candidates: All candidates produced by the pipeline (any status).
@@ -275,9 +275,9 @@ def fn_diagnosis(
     merge_oracle: Set[Tuple[int, int]],
     report: Optional["ValidationReport"] = None,
 ) -> List[Dict[str, Any]]:
-    """Diagnose false negative candidates: oracle pairs rejected by the pipeline.
+    """Diagnose false negative candidates: ground-truth pairs rejected by the pipeline.
 
-    For each candidate that is (a) rejected and (b) in the merge oracle (ground
+    For each candidate that is (a) rejected and (b) in the ground truth (ground
     truth says it should merge), extract which validation rule fired first with a
     REJECTED decision.  Useful for pinpointing the dominant blocker among the
     remaining FNs.

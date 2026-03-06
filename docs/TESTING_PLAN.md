@@ -66,7 +66,7 @@ Remaining:
 Completed:
 - **CREMI Sample A** (Drosophila brain EM, 64×256×256 crop, 40×4×4 nm resolution)
   - Full end-to-end run: extraction → stitching → graph → candidates → validation → assembly → export
-  - Ground truth evaluation using label-ID oracle: precision 1.000, recall 0.909, F1 0.952
+  - Ground truth evaluation using label-ID ground truth: precision 1.000, recall 0.909, F1 0.952
   - Corrected precomputed segmentation output confirmed in Neuroglancer format
   - Documented in Experiment Log entries 5–7
 
