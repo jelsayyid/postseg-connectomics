@@ -179,13 +179,15 @@ def build_merge_oracle(
 def evaluate_decisions_xpress(
     candidates: List["CandidateConnection"],
     store: "FragmentStore",
-    merge_oracle: Set[Tuple[int, int]],
+    gt_pairs: Set[Tuple[int, int]],
 ) -> Dict[str, object]:
     """Score pipeline decisions against XPRESS skeleton ground truth.
 
-    A candidate is a *positive* (should merge) when the (label_id_a, label_id_b)
-    pair appears in the skeleton-derived ground truth. Ambiguous decisions are
-    tallied separately and excluded from precision/recall.
+    A candidate is GT-positive (should merge) when its (label_id_a, label_id_b)
+    pair appears in the skeleton-derived ground-truth merge set.  That set is
+    built by build_merge_oracle(): for each skeleton edge whose endpoints land in
+    different non-background segment IDs, the (seg_a, seg_b) pair is added.
+    Ambiguous decisions are tallied separately and excluded from precision/recall.
 
     This is the XPRESS analogue of evaluate_decisions() in ground_truth.py,
     replacing the label-ID ground truth with a skeleton-edge-derived ground truth.
@@ -194,7 +196,7 @@ def evaluate_decisions_xpress(
         candidates: All candidates produced by the pipeline (any status).
         store: Fragment store for looking up each fragment's label_id (= segment ID
                in the original XPRESS baseline segmentation).
-        merge_oracle: Set of (seg_a, seg_b) pairs from build_merge_oracle().
+        gt_pairs: Set of (seg_a, seg_b) pairs from build_merge_oracle().
 
     Returns:
         Dict with keys: true_positives, false_positives, true_negatives,
@@ -216,7 +218,7 @@ def evaluate_decisions_xpress(
             min(frag_a.label_id, frag_b.label_id),
             max(frag_a.label_id, frag_b.label_id),
         )
-        should_merge = pair in merge_oracle
+        should_merge = pair in gt_pairs
         status = cand.status.value  # "accepted" | "rejected" | "ambiguous"
 
         if status == "accepted":
@@ -272,20 +274,20 @@ def evaluate_decisions_xpress(
 def fn_diagnosis(
     candidates: List["CandidateConnection"],
     store: "FragmentStore",
-    merge_oracle: Set[Tuple[int, int]],
+    gt_pairs: Set[Tuple[int, int]],
     report: Optional["ValidationReport"] = None,
 ) -> List[Dict[str, Any]]:
     """Diagnose false negative candidates: ground-truth pairs rejected by the pipeline.
 
-    For each candidate that is (a) rejected and (b) in the ground truth (ground
-    truth says it should merge), extract which validation rule fired first with a
-    REJECTED decision.  Useful for pinpointing the dominant blocker among the
-    remaining FNs.
+    For each candidate that is (a) rejected and (b) GT-positive (its label pair
+    appears in the skeleton-derived ground-truth merge set), extract which
+    validation rule fired first with a REJECTED decision.  Useful for
+    pinpointing the dominant blocker among the remaining FNs.
 
     Args:
         candidates: All candidate connections (any status).
         store: Fragment store for label_id lookup.
-        merge_oracle: Set of (seg_a, seg_b) pairs from build_merge_oracle().
+        gt_pairs: Set of (seg_a, seg_b) pairs from build_merge_oracle().
         report: Optional ValidationReport produced during validation.  When
             provided, per-rule outcomes are extracted for each FN.  If None,
             rule attribution is omitted.
@@ -314,7 +316,7 @@ def fn_diagnosis(
             min(frag_a.label_id, frag_b.label_id),
             max(frag_a.label_id, frag_b.label_id),
         )
-        if pair not in merge_oracle:
+        if pair not in gt_pairs:
             continue  # true negative — not a FN
 
         # Extract rule-level information from the ValidationReport

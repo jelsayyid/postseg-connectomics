@@ -11,3 +11,10 @@ output/
 data/
 models/
 *.pkl
+
+# Local editor/tooling state
+.claude/
+.vscode/
+.idea/
+.coverage
+coverage.json

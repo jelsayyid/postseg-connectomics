@@ -22,6 +22,29 @@ Each sampled candidate occupies one row of THREE panels side-by-side:
       Skeleton nodes/edges for the fragment pair's neurons are highlighted.
       Without --skel the ground-truth overlay is omitted and "GT: N/A" is shown.
 
+Ground-truth semantics (XPRESS):
+  "GT SHOULD MERGE" means the label pair (label_a, label_b) appears in the
+  skeleton-derived ground-truth merge set.  That set is built by
+  build_merge_oracle() in xpress_ground_truth.py: for every edge (u, v) in
+  every axon skeleton graph, both node positions are mapped to voxel
+  coordinates and looked up in the segmentation.  If the two endpoints fall
+  in *different* non-background segment IDs, that (seg_a, seg_b) pair is
+  added to the ground-truth set.  This edge-crossing criterion is the
+  canonical definition of a split error in the XPRESS evaluation.
+
+  The dashed yellow line drawn for TP/FN pairs is a GT-positive *indicator*:
+  it connects the fragment centroids to show that the pipeline detected (or
+  missed) a merge flagged by the skeleton, but it is NOT a direct
+  visualisation of the skeleton edge itself.  To verify the anatomical
+  reality of the split, inspect the yellow skeleton overlay in Panel 1 and
+  Panel 3: the skeleton should visibly run through both fragment regions.
+
+  Pipeline decisions are based on skeleton geometry (alignment, continuity,
+  and curvature scores derived from fragment endpoint directions), then
+  filtered by rule-based checks (MaxDistance, CurvatureRule, etc.).
+  Ground-truth labels are used only for post-hoc evaluation — they play no
+  role in the pipeline decision itself.
+
 Candidates sampled (configurable via --n-samples):
   - High-confidence accepted  : highest composite score among accepted
   - Low-confidence accepted   : lowest  composite score among accepted
@@ -93,6 +116,7 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import h5py
@@ -107,12 +131,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 # ---------------------------------------------------------------------------
 
 CATEGORY_COLORS = {
-    "Ground-truth TP":          "#2166ac",
+    "Ground-truth TP": "#2166ac",
     "High-confidence accepted": "#1a9641",
-    "Low-confidence accepted":  "#fdae61",
-    "Borderline rejected":      "#d7191c",
-    "GT FN":                    "#e07020",
-    "Random rejected":          "#999999",
+    "Low-confidence accepted": "#fdae61",
+    "Borderline rejected": "#d7191c",
+    "GT FN": "#e07020",
+    "Random rejected": "#999999",
 }
 
 OUTCOME_COLORS = {
@@ -120,7 +144,7 @@ OUTCOME_COLORS = {
     "FP": "#d7191c",  # red
     "FN": "#e07020",  # orange
     "TN": "#888888",  # gray
-    "NA": "#cccccc",  # no oracle
+    "NA": "#cccccc",  # no ground-truth
 }
 
 
@@ -133,8 +157,10 @@ def _load_crop(
     path: str,
     key: str,
     z: int,
-    y0: int, y1: int,
-    x0: int, x1: int,
+    y0: int,
+    y1: int,
+    x0: int,
+    x1: int,
     dtype=None,
 ) -> tuple[np.ndarray, tuple[int, int, int, int]]:
     """Load a 2D sub-region from a single Z-slice of an HDF5 volume.
@@ -207,6 +233,7 @@ def _raw_to_rgba(raw_crop: np.ndarray) -> np.ndarray:
 def _load_combined_skeleton(npz_path: str):
     """Load all skeleton graphs from npz and return as a single combined graph."""
     import sys
+
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from connectomics_pipeline.evaluation.xpress_ground_truth import load_skeleton_graphs
     import networkx as nx
@@ -220,40 +247,50 @@ def _load_combined_skeleton(npz_path: str):
     return combined
 
 
-def _build_oracle(
+def _build_gt_pairs(
     seg_path: str,
     seg_key: str,
     skel_graph,
-    res_z: float, res_y: float, res_x: float,
+    res_z: float,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
 ) -> set[tuple[int, int]]:
-    """Build label-pair merge oracle from skeleton + segmentation.
+    """Build the ground-truth merge set from skeleton edges and segmentation.
+
+    For every edge (u, v) in the skeleton graph, both node positions are mapped
+    to voxel coordinates and looked up in the segmentation volume.  If the two
+    endpoints land in *different* non-background segment IDs the pair is added
+    to the ground-truth set.  This edge-crossing criterion is the canonical
+    definition of a split error in the XPRESS evaluation.
 
     Loads the full segmentation into memory — only called once per report.
-    Skeleton positions are (x_nm, y_nm, z_nm).
+    Skeleton node positions are (x_nm, y_nm, z_nm).
     """
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from connectomics_pipeline.evaluation.xpress_ground_truth import build_merge_oracle
 
-    print("  Loading segmentation for oracle construction …", flush=True)
+    print("  Loading segmentation for ground-truth construction …", flush=True)
     with h5py.File(seg_path, "r") as f:
         seg = f[seg_key][:]
 
-    oracle = build_merge_oracle(
+    gt_pairs = build_merge_oracle(
         [skel_graph],
         seg,
         (res_z, res_y, res_x),
         seg_offset,
     )
     del seg
-    print(f"  Ground-truth: {len(oracle):,} merge pairs", flush=True)
-    return oracle
+    print(f"  Ground-truth: {len(gt_pairs):,} merge pairs", flush=True)
+    return gt_pairs
 
 
 def _skel_nodes_near_slice(
     skel_graph,
     z_slice_vox: int,
-    res_z: float, res_y: float, res_x: float,
+    res_z: float,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
     z_half: int = 2,
 ) -> list[tuple[float, float, int, object]]:
@@ -292,9 +329,12 @@ def _skel_edges_among_nodes(
 
 
 def _nm_to_crop_px(
-    y_nm: float, x_nm: float,
-    seg_crop_y0: int, seg_crop_x0: int,
-    res_y: float, res_x: float,
+    y_nm: float,
+    x_nm: float,
+    seg_crop_y0: int,
+    seg_crop_x0: int,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
 ) -> tuple[float, float]:
     """Convert (y_nm, x_nm) skeleton position to crop pixel coords."""
@@ -308,10 +348,13 @@ def _overlay_skeleton(
     ax: plt.Axes,
     near_nodes: list,
     near_edges: list,
-    seg_crop_y0: int, seg_crop_x0: int,
-    res_y: float, res_x: float,
+    seg_crop_y0: int,
+    seg_crop_x0: int,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
-    crop_h: int, crop_w: int,
+    crop_h: int,
+    crop_w: int,
     highlight_skel_ids: set | None = None,
     base_alpha: float = 0.55,
     highlight_alpha: float = 0.9,
@@ -328,13 +371,22 @@ def _overlay_skeleton(
         px1, py1 = _nm_to_crop_px(y1, x1, seg_crop_y0, seg_crop_x0, res_y, res_x, seg_offset)
         px2, py2 = _nm_to_crop_px(y2, x2, seg_crop_y0, seg_crop_x0, res_y, res_x, seg_offset)
         # Only draw if at least partially in-bounds
-        if not (max(px1, px2) < 0 or min(px1, px2) >= crop_w
-                or max(py1, py2) < 0 or min(py1, py2) >= crop_h):
+        if not (
+            max(px1, px2) < 0
+            or min(px1, px2) >= crop_w
+            or max(py1, py2) < 0
+            or min(py1, py2) >= crop_h
+        ):
             # (edge color: average the two endpoint skeleton colors, use yellow for highlighted)
-            alpha = highlight_alpha if highlight_skel_ids and (
-                # Approximate — edge color from first endpoint
-                True
-            ) else base_alpha
+            alpha = (
+                highlight_alpha
+                if highlight_skel_ids
+                and (
+                    # Approximate — edge color from first endpoint
+                    True
+                )
+                else base_alpha
+            )
             ax.plot([px1, px2], [py1, py2], "-", color="#ffff00", lw=0.8, alpha=0.5, zorder=3)
 
     # Draw nodes
@@ -345,8 +397,16 @@ def _overlay_skeleton(
             color = "#ffdd00" if highlighted else id_to_color.get(sid, "white")
             alpha = highlight_alpha if highlighted else base_alpha
             size = node_size * 1.5 if highlighted else node_size
-            ax.plot(px, py, "o", color=color, markersize=size, alpha=alpha,
-                    markeredgewidth=0.0, zorder=4)
+            ax.plot(
+                px,
+                py,
+                "o",
+                color=color,
+                markersize=size,
+                alpha=alpha,
+                markeredgewidth=0.0,
+                zorder=4,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +417,7 @@ def _overlay_skeleton(
 def _sample_candidates(
     connections: pd.DataFrame,
     fragments: pd.DataFrame,
-    oracle: set[tuple[int, int]] | None,
+    gt_pairs: set[tuple[int, int]] | None,
     n_samples: int,
     seed: int,
 ) -> list[tuple[str, pd.Series]]:
@@ -384,8 +444,8 @@ def _sample_candidates(
         pool = df.nlargest(n * 5, col) if largest else df.nsmallest(n * 5, col)
         return list(pool.head(n).iterrows())
 
-    # Ground-truth TP sample (accepted AND oracle-positive) — the main scientific check
-    if oracle is not None:
+    # Ground-truth TP sample (accepted AND GT-positive) — the main scientific check
+    if gt_pairs is not None:
         frag_info_lkp = fragments[["fragment_id", "label_id"]].set_index("fragment_id")
         tp_rows = []
         for _, row in acc_real.iterrows():
@@ -394,7 +454,7 @@ def _sample_candidates(
                 continue
             la = int(frag_info_lkp.loc[fa, "label_id"])
             lb = int(frag_info_lkp.loc[fb, "label_id"])
-            if (min(la, lb), max(la, lb)) in oracle:
+            if (min(la, lb), max(la, lb)) in gt_pairs:
                 tp_rows.append(row)
         if tp_rows:
             tp_pool = pd.DataFrame(tp_rows)
@@ -413,8 +473,8 @@ def _sample_candidates(
     for _, row in _take(rej_real, n_samples, largest=True):
         out.append(("Borderline rejected", row))
 
-    # GT FN sample (rejected but should merge) — requires oracle
-    if oracle is not None:
+    # GT FN sample (rejected but GT says should merge) — requires ground-truth
+    if gt_pairs is not None:
         frag_info_lkp = fragments[["fragment_id", "label_id"]].set_index("fragment_id")
         fn_rows = []
         for _, row in rej_real.iterrows():
@@ -423,7 +483,7 @@ def _sample_candidates(
                 continue
             la = int(frag_info_lkp.loc[fa, "label_id"])
             lb = int(frag_info_lkp.loc[fb, "label_id"])
-            if (min(la, lb), max(la, lb)) in oracle:
+            if (min(la, lb), max(la, lb)) in gt_pairs:
                 fn_rows.append(row)
         if fn_rows:
             fn_pool = pd.DataFrame(fn_rows)
@@ -440,24 +500,30 @@ def _sample_candidates(
 
 
 # ---------------------------------------------------------------------------
-# Oracle outcome per candidate
+# Ground-truth outcome per candidate
 # ---------------------------------------------------------------------------
 
 
-def _oracle_outcome(
+def _gt_outcome(
     cand_row: pd.Series,
     frag_info: pd.DataFrame,
-    oracle: set[tuple[int, int]] | None,
+    gt_pairs: set[tuple[int, int]] | None,
 ) -> str:
-    """Return TP / FP / FN / TN / NA for this candidate."""
-    if oracle is None:
+    """Return TP / FP / FN / TN / NA for this candidate.
+
+    A candidate is GT-positive ("should merge") when its (label_a, label_b)
+    pair appears in the skeleton-derived ground-truth merge set.  That set is
+    built by examining skeleton edges that cross segment boundaries in the
+    baseline segmentation (see build_merge_oracle() in xpress_ground_truth.py).
+    """
+    if gt_pairs is None:
         return "NA"
     fa, fb = int(cand_row["fragment_a"]), int(cand_row["fragment_b"])
     if fa not in frag_info.index or fb not in frag_info.index:
         return "NA"
     la = int(frag_info.loc[fa, "label_id"])
     lb = int(frag_info.loc[fb, "label_id"])
-    should_merge = (min(la, lb), max(la, lb)) in oracle
+    should_merge = (min(la, lb), max(la, lb)) in gt_pairs
     accepted = cand_row["status"] == "accepted"
     if accepted and should_merge:
         return "TP"
@@ -474,9 +540,12 @@ def _oracle_outcome(
 
 
 def _centroid_to_crop_px(
-    cy_vox: float, cx_vox: float,
-    crop_y0: int, crop_x0: int,
-    crop_h: int, crop_w: int,
+    cy_vox: float,
+    cx_vox: float,
+    crop_y0: int,
+    crop_x0: int,
+    crop_h: int,
+    crop_w: int,
 ) -> tuple[float, float]:
     """Convert voxel centroid to crop pixel coords, clipped to crop bounds."""
     px = float(np.clip(cx_vox - crop_x0, 0, crop_w - 1))
@@ -489,8 +558,10 @@ def _draw_panel_raw(
     raw_rgba: np.ndarray,
     near_nodes: list,
     near_edges: list,
-    seg_crop_y0: int, seg_crop_x0: int,
-    res_y: float, res_x: float,
+    seg_crop_y0: int,
+    seg_crop_x0: int,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
     title: str,
 ) -> None:
@@ -498,16 +569,23 @@ def _draw_panel_raw(
     h, w = raw_rgba.shape[:2]
     ax.imshow(raw_rgba, origin="upper", interpolation="nearest")
     if near_nodes:
-        _overlay_skeleton(ax, near_nodes, near_edges,
-                          seg_crop_y0, seg_crop_x0, res_y, res_x, seg_offset, h, w)
+        _overlay_skeleton(
+            ax, near_nodes, near_edges, seg_crop_y0, seg_crop_x0, res_y, res_x, seg_offset, h, w
+        )
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_title(title, fontsize=6.5, pad=2)
     # Add legend for skeleton
     if near_nodes:
         dot = mpatches.Patch(color="#ffdd00", label="Skeleton nodes")
-        ax.legend(handles=[dot], fontsize=4.5, loc="lower left",
-                  framealpha=0.6, handlelength=0.6, borderpad=0.2)
+        ax.legend(
+            handles=[dot],
+            fontsize=4.5,
+            loc="lower left",
+            framealpha=0.6,
+            handlelength=0.6,
+            borderpad=0.2,
+        )
 
 
 def _draw_panel_prediction(
@@ -515,10 +593,14 @@ def _draw_panel_prediction(
     seg_rgba: np.ndarray,
     cand_row: pd.Series,
     category: str,
-    cy_a: float, cx_a: float,
-    cy_b: float, cx_b: float,
-    crop_y0: int, crop_x0: int,
-    label_a: int, label_b: int,
+    cy_a: float,
+    cx_a: float,
+    cy_b: float,
+    cx_b: float,
+    crop_y0: int,
+    crop_x0: int,
+    label_a: int,
+    label_b: int,
 ) -> None:
     """Panel 2: colorized segmentation with pipeline decision overlay."""
     h, w = seg_rgba.shape[:2]
@@ -537,18 +619,43 @@ def _draw_panel_prediction(
             zorder=5,
         )
 
-    ax.plot(px_a, py_a, "o", color="#ff6666", markersize=6,
-            markeredgecolor="white", markeredgewidth=0.5, zorder=6)
-    ax.plot(px_b, py_b, "o", color="#66aaff", markersize=6,
-            markeredgecolor="white", markeredgewidth=0.5, zorder=6)
+    ax.plot(
+        px_a,
+        py_a,
+        "o",
+        color="#ff6666",
+        markersize=6,
+        markeredgecolor="white",
+        markeredgewidth=0.5,
+        zorder=6,
+    )
+    ax.plot(
+        px_b,
+        py_b,
+        "o",
+        color="#66aaff",
+        markersize=6,
+        markeredgecolor="white",
+        markeredgewidth=0.5,
+        zorder=6,
+    )
 
     # Decision badge (top-right corner)
     status = cand_row["status"]
     badge_color = "#1a9641" if status == "accepted" else "#d7191c"
     badge_text = "ACC" if status == "accepted" else "REJ"
-    ax.text(w - 2, 3, badge_text, fontsize=7, color="white", fontweight="bold",
-            ha="right", va="top", zorder=7,
-            bbox=dict(facecolor=badge_color, alpha=0.85, pad=1.5, edgecolor="none"))
+    ax.text(
+        w - 2,
+        3,
+        badge_text,
+        fontsize=7,
+        color="white",
+        fontweight="bold",
+        ha="right",
+        va="top",
+        zorder=7,
+        bbox=dict(facecolor=badge_color, alpha=0.85, pad=1.5, edgecolor="none"),
+    )
 
     # Category color bar at top
     ax.axhline(y=1, color=CATEGORY_COLORS.get(category, "#cccccc"), lw=4)
@@ -571,8 +678,15 @@ def _draw_panel_prediction(
         mpatches.Patch(color="#ff6666", label=f"A (lbl {label_a})"),
         mpatches.Patch(color="#66aaff", label=f"B (lbl {label_b})"),
     ]
-    ax.legend(handles=patches, fontsize=4.5, loc="lower right",
-              framealpha=0.6, handlelength=0.8, borderpad=0.2, labelspacing=0.15)
+    ax.legend(
+        handles=patches,
+        fontsize=4.5,
+        loc="lower right",
+        framealpha=0.6,
+        handlelength=0.8,
+        borderpad=0.2,
+        labelspacing=0.15,
+    )
 
 
 def _draw_panel_gt(
@@ -583,33 +697,56 @@ def _draw_panel_gt(
     near_nodes: list,
     near_edges: list,
     highlight_skel_ids: set,
-    seg_crop_y0: int, seg_crop_x0: int,
-    res_y: float, res_x: float,
+    seg_crop_y0: int,
+    seg_crop_x0: int,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
-    cx_a: float, cy_a: float,
-    cx_b: float, cy_b: float,
-    crop_y0: int, crop_x0: int,
+    cx_a: float,
+    cy_a: float,
+    cx_b: float,
+    cy_b: float,
+    crop_y0: int,
+    crop_x0: int,
 ) -> None:
-    """Panel 3: colorized segmentation with oracle ground truth overlay."""
+    """Panel 3: colorized segmentation with ground-truth verdict overlay."""
     h, w = seg_rgba.shape[:2]
     ax.imshow(seg_rgba, origin="upper", interpolation="nearest")
 
     # Skeleton overlay (highlight relevant neurons)
     if near_nodes:
-        _overlay_skeleton(ax, near_nodes, near_edges,
-                          seg_crop_y0, seg_crop_x0, res_y, res_x, seg_offset, h, w,
-                          highlight_skel_ids=highlight_skel_ids,
-                          base_alpha=0.35, highlight_alpha=0.95)
+        _overlay_skeleton(
+            ax,
+            near_nodes,
+            near_edges,
+            seg_crop_y0,
+            seg_crop_x0,
+            res_y,
+            res_x,
+            seg_offset,
+            h,
+            w,
+            highlight_skel_ids=highlight_skel_ids,
+            base_alpha=0.35,
+            highlight_alpha=0.95,
+        )
 
-    # For oracle-positive pairs, draw crossing indicator between fragment centroids
+    # For GT-positive pairs, draw crossing indicator between fragment centroids
     if outcome in ("TP", "FN"):
         px_a, py_a = _centroid_to_crop_px(cy_a, cx_a, crop_y0, crop_x0, h, w)
         px_b, py_b = _centroid_to_crop_px(cy_b, cx_b, crop_y0, crop_x0, h, w)
         dist = np.sqrt((px_b - px_a) ** 2 + (py_b - py_a) ** 2)
         if dist > 2:
-            ax.plot([px_a, px_b], [py_a, py_b], "--",
-                    color="#ffdd00", lw=1.5, alpha=0.9, zorder=5,
-                    label="Should merge")
+            ax.plot(
+                [px_a, px_b],
+                [py_a, py_b],
+                "--",
+                color="#ffdd00",
+                lw=1.5,
+                alpha=0.9,
+                zorder=5,
+                label="Should merge",
+            )
 
     # Oracle outcome badge (large, center-top)
     badge_color = OUTCOME_COLORS.get(outcome, "#cccccc")
@@ -620,18 +757,38 @@ def _draw_panel_gt(
         "TN": "TN — Correct reject",
         "NA": "GT: N/A (no ground-truth)",
     }.get(outcome, outcome)
-    ax.text(w / 2, 4, outcome_label, fontsize=6.5, color="white", fontweight="bold",
-            ha="center", va="top", zorder=8,
-            bbox=dict(facecolor=badge_color, alpha=0.90, pad=2.0, edgecolor="none"))
+    ax.text(
+        w / 2,
+        4,
+        outcome_label,
+        fontsize=6.5,
+        color="white",
+        fontweight="bold",
+        ha="center",
+        va="top",
+        zorder=8,
+        bbox=dict(facecolor=badge_color, alpha=0.90, pad=2.0, edgecolor="none"),
+    )
 
     # Merge verdict text at bottom
+    # "GT: SHOULD MERGE" = label pair appears in skeleton-derived ground-truth set
+    # (a skeleton edge crosses the segment boundary between fragment A and B)
     if outcome != "NA":
         should_merge = outcome in ("TP", "FN")
-        verdict = "GT: SHOULD MERGE" if should_merge else "GT: NO MERGE"
+        verdict = "GT: SHOULD MERGE (skeleton edge crossing)" if should_merge else "GT: NO MERGE"
         verdict_color = "#1a9641" if should_merge else "#d7191c"
-        ax.text(w / 2, h - 3, verdict, fontsize=5.5, color=verdict_color,
-                fontweight="bold", ha="center", va="bottom", zorder=8,
-                bbox=dict(facecolor="white", alpha=0.75, pad=1.0, edgecolor="none"))
+        ax.text(
+            w / 2,
+            h - 3,
+            verdict,
+            fontsize=5.0,
+            color=verdict_color,
+            fontweight="bold",
+            ha="center",
+            va="bottom",
+            zorder=8,
+            bbox=dict(facecolor="white", alpha=0.75, pad=1.0, edgecolor="none"),
+        )
 
     ax.set_xticks([])
     ax.set_yticks([])
@@ -642,8 +799,7 @@ def _draw_panel_gt(
     ax.set_title(title, fontsize=6.5, pad=2)
 
     if outcome in ("TP", "FN"):
-        ax.legend(fontsize=4.5, loc="lower left",
-                  framealpha=0.6, handlelength=0.8, borderpad=0.2)
+        ax.legend(fontsize=4.5, loc="lower left", framealpha=0.6, handlelength=0.8, borderpad=0.2)
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +813,9 @@ def _find_skeleton_ids_for_labels(
     label_b: int,
     seg_path: str,
     seg_key: str,
-    res_z: float, res_y: float, res_x: float,
+    res_z: float,
+    res_y: float,
+    res_x: float,
     seg_offset: tuple[int, int, int],
     seg_shape: tuple[int, int, int],
 ) -> set[int]:
@@ -683,6 +841,7 @@ def _find_skeleton_ids_for_labels(
 
     # Group nodes by skeleton_id, sample up to 20 nodes per skeleton
     from collections import defaultdict
+
     by_skel: dict[int, list] = defaultdict(list)
     for node, data in skel_graph.nodes(data=True):
         pos = data.get("position")
@@ -709,6 +868,68 @@ def _find_skeleton_ids_for_labels(
                     break  # found a match for this skeleton
 
     return found
+
+
+# ---------------------------------------------------------------------------
+# Ground-truth audit export
+# ---------------------------------------------------------------------------
+
+
+def _write_gt_pair_audit(
+    connections: pd.DataFrame,
+    fragments: pd.DataFrame,
+    gt_pairs: set[tuple[int, int]] | None,
+    report_out_path: str,
+) -> None:
+    """Write gt_pair_audit.csv alongside the PDF report.
+
+    Columns
+    -------
+    candidate_id, fragment_a, fragment_b, label_a, label_b,
+    gt_should_merge, gt_source, status,
+    composite, alignment, continuity, gap
+
+    gt_should_merge is True when the (label_a, label_b) pair appears in the
+    skeleton-derived ground-truth merge set (edge-crossing criterion).
+    gt_source is 'skeleton_edge_crossing' when ground-truth is available, or
+    'unavailable' when --skel was not provided.
+    """
+    frag_label = fragments[["fragment_id", "label_id"]].set_index("fragment_id")["label_id"]
+
+    records = []
+    for _, row in connections.iterrows():
+        fa = int(row["fragment_a"])
+        fb = int(row["fragment_b"])
+        la = int(frag_label[fa]) if fa in frag_label.index else None
+        lb = int(frag_label[fb]) if fb in frag_label.index else None
+
+        if gt_pairs is not None and la is not None and lb is not None:
+            gt_should_merge = (min(la, lb), max(la, lb)) in gt_pairs
+            gt_source = "skeleton_edge_crossing"
+        else:
+            gt_should_merge = None
+            gt_source = "unavailable"
+
+        records.append(
+            {
+                "candidate_id": int(row["candidate_id"]),
+                "fragment_a": fa,
+                "fragment_b": fb,
+                "label_a": la,
+                "label_b": lb,
+                "gt_should_merge": gt_should_merge,
+                "gt_source": gt_source,
+                "status": row["status"],
+                "composite": round(float(row.get("composite_score", float("nan"))), 4),
+                "alignment": round(float(row.get("alignment_score", float("nan"))), 4),
+                "continuity": round(float(row.get("continuity_score", float("nan"))), 4),
+                "gap": round(float(row.get("gap_distance", float("nan"))), 1),
+            }
+        )
+
+    audit_path = str(Path(report_out_path).with_name("gt_pair_audit.csv"))
+    pd.DataFrame(records).to_csv(audit_path, index=False)
+    print(f"  Ground-truth audit written to: {audit_path}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -742,30 +963,32 @@ def generate_report(
         else (resolution[0],) * 3
     )
 
-    frag_info = (
-        fragments[["fragment_id", "label_id", "centroid_z", "centroid_y", "centroid_x"]]
-        .set_index("fragment_id")
-    )
+    frag_info = fragments[
+        ["fragment_id", "label_id", "centroid_z", "centroid_y", "centroid_x"]
+    ].set_index("fragment_id")
 
-    # Load skeleton + build oracle
+    # Load skeleton + build ground-truth merge set
     skel_graph = None
-    oracle: set[tuple[int, int]] | None = None
+    gt_pairs: set[tuple[int, int]] | None = None
     if skel_path:
         print("Loading skeleton graph …", flush=True)
         skel_graph = _load_combined_skeleton(skel_path)
-        oracle = _build_oracle(seg_path, seg_key, skel_graph, res_z, res_y, res_x, seg_offset)
+        gt_pairs = _build_gt_pairs(seg_path, seg_key, skel_graph, res_z, res_y, res_x, seg_offset)
 
     # Get segmentation shape for skeleton-to-fragment lookup
     with h5py.File(seg_path, "r") as f:
         seg_shape = tuple(f[seg_key].shape)  # (Z, Y, X)
 
+    # Export gt_pair_audit.csv — per-candidate ground-truth audit table
+    _write_gt_pair_audit(connections, fragments, gt_pairs, out_path)
+
     # Sample candidates
-    samples = _sample_candidates(connections, fragments, oracle, n_samples, seed)
+    samples = _sample_candidates(connections, fragments, gt_pairs, n_samples, seed)
     print(f"Generating report for {len(samples)} candidates → {out_path}", flush=True)
 
     with PdfPages(out_path) as pdf:
         # ---- Cover page ----
-        _write_cover(pdf, output_dir, seg_path, skel_path, connections, samples, raw_path)
+        _write_cover(pdf, output_dir, seg_path, skel_path, connections, samples, raw_path, gt_pairs)
 
         # ---- Candidate rows (3 candidates per page) ----
         ROWS_PER_PAGE = 3
@@ -776,7 +999,8 @@ def generate_report(
             n_rows = len(batch)
 
             fig, axes = plt.subplots(
-                n_rows, 3,
+                n_rows,
+                3,
                 figsize=(11, 3.8 * n_rows),
                 gridspec_kw={"hspace": 0.55, "wspace": 0.06},
                 squeeze=False,
@@ -843,14 +1067,20 @@ def generate_report(
                     near_edges = _skel_edges_among_nodes(skel_graph, near_nodes)
                     # Find which skeleton IDs belong to frag A and B
                     highlight_skel_ids = _find_skeleton_ids_for_labels(
-                        skel_graph, label_a, label_b,
-                        seg_path, seg_key,
-                        res_z, res_y, res_x,
-                        seg_offset, seg_shape,
+                        skel_graph,
+                        label_a,
+                        label_b,
+                        seg_path,
+                        seg_key,
+                        res_z,
+                        res_y,
+                        res_x,
+                        seg_offset,
+                        seg_shape,
                     )
 
-                # Oracle outcome
-                outcome = _oracle_outcome(cand_row, frag_info, oracle)
+                # Ground-truth outcome
+                outcome = _gt_outcome(cand_row, frag_info, gt_pairs)
 
                 # Row header text (left axis title area)
                 row_header = (
@@ -863,9 +1093,7 @@ def generate_report(
                 raw_rgba: np.ndarray | None = None
                 if raw_path:
                     try:
-                        raw_crop, _ = _load_crop(
-                            raw_path, raw_key, mid_z, cy0, cy1, cx0, cx1
-                        )
+                        raw_crop, _ = _load_crop(raw_path, raw_key, mid_z, cy0, cy1, cx0, cx1)
                         raw_rgba = _raw_to_rgba(raw_crop)
                     except Exception:
                         raw_rgba = None
@@ -877,48 +1105,68 @@ def generate_report(
                     # Neutral segmentation (no A/B highlighting)
                     panel1_rgba = _neutral_seg(seg_crop)
                     panel1_base = "Segmentation (neutral)"
-                panel1_title = (
-                    f"{panel1_base}  +  skeleton overlay"
-                    if near_nodes else panel1_base
-                )
+                panel1_title = f"{panel1_base}  +  skeleton overlay" if near_nodes else panel1_base
 
                 _draw_panel_raw(
-                    ax_raw, panel1_rgba, near_nodes, near_edges,
-                    ay0, ax0, res_y, res_x, seg_offset,
+                    ax_raw,
+                    panel1_rgba,
+                    near_nodes,
+                    near_edges,
+                    ay0,
+                    ax0,
+                    res_y,
+                    res_x,
+                    seg_offset,
                     title=panel1_title,
                 )
-                ax_raw.set_ylabel(row_header, fontsize=5.0, rotation=90,
-                                  labelpad=3, va="center")
+                ax_raw.set_ylabel(row_header, fontsize=5.0, rotation=90, labelpad=3, va="center")
                 _set_border(ax_raw, CATEGORY_COLORS.get(category, "#cccccc"))
 
                 # ---- Panel 2: Prediction ----
                 _draw_panel_prediction(
-                    ax_pred, seg_rgba, cand_row, category,
-                    cy_a, cx_a, cy_b, cx_b,
-                    ay0, ax0, label_a, label_b,
+                    ax_pred,
+                    seg_rgba,
+                    cand_row,
+                    category,
+                    cy_a,
+                    cx_a,
+                    cy_b,
+                    cx_b,
+                    ay0,
+                    ax0,
+                    label_a,
+                    label_b,
                 )
                 # Always show column header on panel 2
                 existing = ax_pred.get_title()
-                ax_pred.set_title(
-                    f"Pipeline Prediction\n{existing}", fontsize=5.5, pad=2
-                )
+                ax_pred.set_title(f"Pipeline Prediction\n{existing}", fontsize=5.5, pad=2)
                 _set_border(ax_pred, CATEGORY_COLORS.get(category, "#cccccc"))
 
                 # ---- Panel 3: Ground Truth ----
                 _draw_panel_gt(
-                    ax_gt, seg_rgba.copy(), outcome, cand_row,
-                    near_nodes, near_edges, highlight_skel_ids,
-                    ay0, ax0, res_y, res_x, seg_offset,
-                    cx_a, cy_a, cx_b, cy_b,
-                    ay0, ax0,
+                    ax_gt,
+                    seg_rgba.copy(),
+                    outcome,
+                    cand_row,
+                    near_nodes,
+                    near_edges,
+                    highlight_skel_ids,
+                    ay0,
+                    ax0,
+                    res_y,
+                    res_x,
+                    seg_offset,
+                    cx_a,
+                    cy_a,
+                    cx_b,
+                    cy_b,
+                    ay0,
+                    ax0,
                 )
                 _set_border(ax_gt, OUTCOME_COLORS.get(outcome, "#cccccc"))
 
             # Category legend at page top
-            cat_patches = [
-                mpatches.Patch(color=c, label=cat)
-                for cat, c in CATEGORY_COLORS.items()
-            ]
+            cat_patches = [mpatches.Patch(color=c, label=cat) for cat, c in CATEGORY_COLORS.items()]
             fig.legend(
                 handles=cat_patches,
                 loc="upper center",
@@ -954,6 +1202,7 @@ def _write_cover(
     connections: pd.DataFrame,
     samples: list,
     raw_path: str | None,
+    gt_pairs: set[tuple[int, int]] | None = None,
 ) -> None:
     fig, ax = plt.subplots(figsize=(8.5, 11))
     ax.axis("off")
@@ -961,18 +1210,21 @@ def _write_cover(
     n_acc = int((connections["status"] == "accepted").sum())
     n_rej = int((connections["status"] == "rejected").sum())
 
-    # Count oracle outcomes from sample
+    # Count category distribution from sample
     category_counts: dict[str, int] = {}
     for cat, _ in samples:
         category_counts[cat] = category_counts.get(cat, 0) + 1
 
-    oracle_note = (
-        f"Ground-truth: skeleton file loaded — TP/FP/FN/TN shown in Panel 3"
+    n_gt_pairs = len(gt_pairs) if gt_pairs is not None else 0
+    gt_note = (
+        f"Ground-truth: {n_gt_pairs:,} skeleton-derived merge pairs loaded — "
+        "TP/FP/FN/TN shown in Panel 3"
         if skel_path
         else "Ground-truth: no skeleton provided — Panel 3 shows GT: N/A"
     )
     raw_note = (
-        f"Raw EM: {raw_path}" if raw_path
+        f"Raw EM: {raw_path}"
+        if raw_path
         else "Raw EM: not provided — Panel 1 shows neutral segmentation"
     )
 
@@ -980,9 +1232,14 @@ def _write_cover(
         "Visual Validation Report\n"
         "Connectomics Split-Detection Pipeline\n\n"
         f"Source:  {output_dir}\n"
-        f"Volume:  {seg_path}\n"
+        f"Segmentation:  {seg_path}\n"
+        f"  Role: input baseline segmentation (automated, imperfect)\n"
+        f"        Fragment IDs are segment IDs from this volume.\n"
         f"{raw_note}\n"
-        f"Skeleton: {skel_path or 'N/A'}\n\n"
+        f"Skeleton: {skel_path or 'N/A'}\n"
+        f"  Role: ground-truth axon traces used to define merge pairs.\n"
+        f"        A pair (A, B) is GT-positive iff a skeleton edge crosses\n"
+        f"        the boundary between segment A and segment B.\n\n"
         f"Candidates:  {len(connections):,} total  |  "
         f"Accepted: {n_acc:,}  |  Rejected: {n_rej:,}\n\n"
         f"Sample shown: {len(samples)} candidates\n"
@@ -991,7 +1248,21 @@ def _write_cover(
         cover_text += f"  • {cat}: {n}\n"
 
     cover_text += (
-        f"\n{oracle_note}\n\n"
+        f"\n{gt_note}\n\n"
+        "─── Ground-truth semantics ────────────────────────────────────\n"
+        "  'GT SHOULD MERGE' means the (label_a, label_b) pair appears in\n"
+        "  the skeleton-derived merge set.  The set is built by mapping\n"
+        "  each skeleton edge endpoint to a voxel in the segmentation; if\n"
+        "  the two endpoints fall in different non-background segments, that\n"
+        "  (seg_a, seg_b) pair is added (edge-crossing criterion).\n"
+        "  The dashed line in Panel 3 is a GT-positive *indicator* connecting\n"
+        "  fragment centroids — it is NOT the skeleton edge itself.  Verify\n"
+        "  the anatomical reality by checking the yellow skeleton overlay in\n"
+        "  Panels 1 and 3: the skeleton should pass through both fragments.\n\n"
+        "  Pipeline decisions are based on skeleton geometry (alignment,\n"
+        "  continuity, curvature) and rule-based filters.  Ground-truth\n"
+        "  labels are used only for post-hoc evaluation — they play no role\n"
+        "  in the pipeline decision.\n\n"
         "─── Panel layout (3 columns per candidate row) ───────────────\n"
         "  Panel 1 — Raw / Neutral:\n"
         "    Grayscale EM (if available) or neutral segmentation.\n"
@@ -1009,20 +1280,25 @@ def _write_cover(
         "    FN (orange) = missed merge    — pipeline rejected, GT says merge\n"
         "    TN (gray)   = correct reject  — pipeline & GT agree: no merge\n"
         "    Bright yellow skeleton = neuron(s) passing through fragment A or B.\n"
-        "    Dashed yellow line = GT crossing (for TP/FN pairs).\n\n"
+        "    Dashed line = GT-positive indicator (TP/FN only); verify with\n"
+        "    skeleton overlay, not the dashed line alone.\n\n"
         "─── How to inspect ───────────────────────────────────────────\n"
         "  1. Look at Panel 1 to understand the tissue context.\n"
         "  2. In Panel 2, check if fragments A and B plausibly belong\n"
         "     to the same neuron (do they touch? Are shapes continuous?).\n"
         "  3. In Panel 3, verify the ground truth: does the skeleton cross\n"
         "     from one fragment into the other? For FP/FN cases, examine\n"
-        "     whether the pipeline's score values explain the error.\n"
+        "     whether the pipeline score values explain the error.\n"
     )
 
     ax.text(
-        0.5, 0.5, cover_text,
-        ha="center", va="center",
-        fontsize=8.5, fontfamily="monospace",
+        0.5,
+        0.5,
+        cover_text,
+        ha="center",
+        va="center",
+        fontsize=8.5,
+        fontfamily="monospace",
         transform=ax.transAxes,
         bbox=dict(boxstyle="round,pad=0.6", facecolor="#f5f5f5", edgecolor="#aaaaaa"),
         linespacing=1.4,
@@ -1032,13 +1308,18 @@ def _write_cover(
     for i, (label, color) in enumerate(OUTCOME_COLORS.items()):
         if label == "NA":
             continue
-        ax.add_patch(mpatches.FancyBboxPatch(
-            (0.08, 0.05 - i * 0.035), 0.03, 0.022,
-            boxstyle="round,pad=0.002",
-            transform=ax.transAxes, color=color, clip_on=False,
-        ))
-        ax.text(0.13, 0.061 - i * 0.035, label,
-                transform=ax.transAxes, fontsize=8, va="center")
+        ax.add_patch(
+            mpatches.FancyBboxPatch(
+                (0.08, 0.05 - i * 0.035),
+                0.03,
+                0.022,
+                boxstyle="round,pad=0.002",
+                transform=ax.transAxes,
+                color=color,
+                clip_on=False,
+            )
+        )
+        ax.text(0.13, 0.061 - i * 0.035, label, transform=ax.transAxes, fontsize=8, va="center")
 
     pdf.savefig(fig, bbox_inches="tight")
     plt.close(fig)
@@ -1053,28 +1334,57 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--output-dir", required=True,
-                        help="Pipeline output directory (connections.csv, fragments.csv)")
-    parser.add_argument("--seg", required=True, help="HDF5 segmentation volume")
-    parser.add_argument("--seg-key", default="labels", help="HDF5 key for segmentation (default: labels)")
-    parser.add_argument("--raw", default=None, help="Optional HDF5 raw EM volume for Panel 1")
-    parser.add_argument("--raw-key", default="volumes/raw", help="HDF5 key for raw image (default: volumes/raw)")
-    parser.add_argument("--skel", default=None, help="Optional skeleton .npz for ground-truth overlay (enables TP/FP/FN/TN in Panel 3)")
-    parser.add_argument("--seg-offset", nargs=3, type=int, default=[0, 0, 0],
-                        metavar=("Z", "Y", "X"),
-                        help="Voxel offset of seg within full volume, z y x (default: 0 0 0)")
     parser.add_argument(
-        "--resolution", nargs="+", type=float, default=[33.0],
+        "--output-dir",
+        required=True,
+        help="Pipeline output directory (connections.csv, fragments.csv)",
+    )
+    parser.add_argument("--seg", required=True, help="HDF5 segmentation volume")
+    parser.add_argument(
+        "--seg-key", default="labels", help="HDF5 key for segmentation (default: labels)"
+    )
+    parser.add_argument("--raw", default=None, help="Optional HDF5 raw EM volume for Panel 1")
+    parser.add_argument(
+        "--raw-key", default="volumes/raw", help="HDF5 key for raw image (default: volumes/raw)"
+    )
+    parser.add_argument(
+        "--skel",
+        default=None,
+        help="Optional skeleton .npz for ground-truth overlay (enables TP/FP/FN/TN in Panel 3)",
+    )
+    parser.add_argument(
+        "--seg-offset",
+        nargs=3,
+        type=int,
+        default=[0, 0, 0],
+        metavar=("Z", "Y", "X"),
+        help="Voxel offset of seg within full volume, z y x (default: 0 0 0)",
+    )
+    parser.add_argument(
+        "--resolution",
+        nargs="+",
+        type=float,
+        default=[33.0],
         help="Voxel size in nm: one value (isotropic) or three (z y x). Default: 33",
     )
-    parser.add_argument("--crop-half", type=int, default=100,
-                        help="Crop half-width in voxels (default: 100 → 200×200 crop)")
-    parser.add_argument("--z-half", type=int, default=4,
-                        help="Skeleton node Z-projection half-thickness in voxels (default: 4)")
-    parser.add_argument("--n-samples", type=int, default=5,
-                        help="Candidates per category (default: 5)")
-    parser.add_argument("--out", default=None,
-                        help="Output PDF path (default: <output-dir>/visual_report.pdf)")
+    parser.add_argument(
+        "--crop-half",
+        type=int,
+        default=100,
+        help="Crop half-width in voxels (default: 100 → 200×200 crop)",
+    )
+    parser.add_argument(
+        "--z-half",
+        type=int,
+        default=4,
+        help="Skeleton node Z-projection half-thickness in voxels (default: 4)",
+    )
+    parser.add_argument(
+        "--n-samples", type=int, default=5, help="Candidates per category (default: 5)"
+    )
+    parser.add_argument(
+        "--out", default=None, help="Output PDF path (default: <output-dir>/visual_report.pdf)"
+    )
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
