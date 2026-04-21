@@ -46,7 +46,12 @@ python_version = "3.10"
 warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true
+follow_imports = "silent"
 
 [[tool.mypy.overrides]]
 module = "connectomics_pipeline.visualization.*"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["tifffile", "tifffile.*"]
+follow_imports = "skip"
