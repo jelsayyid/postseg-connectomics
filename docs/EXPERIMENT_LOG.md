@@ -485,7 +485,7 @@ The CREMI evaluation (Experiments 5–7) used human-annotated Drosophila EM labe
 | File | URL | Description |
 |------|-----|-------------|
 | `baseline_seg_training.h5` | https://github.com/htem/xpress-challenge-files/releases/download/baseline/baseline_seg_training.h5 | Automated segmentation (input to pipeline) |
-| `XPRESS_training_skels.npz` | https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_training_skels.npz | GT skeleton graphs (merge oracle) |
+| `XPRESS_training_skels.npz` | https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_training_skels.npz | GT skeleton graphs (ground-truth merge pairs) |
 | `baseline_seg_validation.h5` | https://github.com/htem/xpress-challenge-files/releases/download/baseline/baseline_seg_validation.h5 | Validation set segmentation |
 | `XPRESS_validation_skels.npz` | https://github.com/htem/xpress-challenge-files/releases/download/v1.0/XPRESS_validation_skels.npz | Validation set GT skeletons |
 
@@ -497,8 +497,8 @@ The CREMI evaluation (Experiments 5–7) used human-annotated Drosophila EM labe
 
 - `connectomics_pipeline/evaluation/xpress_ground_truth.py` — Three functions:
   - `load_skeleton_graphs(npz_path)` — Loads XPRESS .npz skeleton files into a list of NetworkX graphs
-  - `build_merge_oracle(graphs, segmentation, voxel_size_nm, seg_offset_voxels)` — Builds the set of (seg_a, seg_b) pairs that should be merged, derived from skeleton edges crossing segment boundaries
-  - `evaluate_decisions_xpress(candidates, store, oracle)` — Scores pipeline decisions; same precision/recall/F1 interface as `ground_truth.evaluate_decisions()`
+  - `build_merge_oracle(graphs, segmentation, voxel_size_nm, seg_offset_voxels)` — Builds the skeleton-derived ground-truth set: (seg_a, seg_b) pairs whose skeleton edge crosses the segment boundary
+  - `evaluate_decisions_xpress(candidates, store, gt_pairs)` — Scores pipeline decisions; same precision/recall/F1 interface as `ground_truth.evaluate_decisions()`
 - `tests/test_xpress_ground_truth.py` — 22 tests, all passing
 - `configs/xpress_sample.yaml` — Pipeline config for XPRESS, with inline instructions for data download, HDF5 inspection, and volume cropping
 
@@ -546,34 +546,11 @@ The CREMI evaluation (Experiments 5–7) used human-annotated Drosophila EM labe
    with h5py.File('data/xpress/baseline_seg_crop.h5', 'r') as f:
        seg = f['labels'][:]
    graphs = load_skeleton_graphs('data/xpress/XPRESS_training_skels.npz')
-   oracle = build_merge_oracle(graphs, seg, voxel_size_nm=(33, 33, 33),
-                               seg_offset_voxels=(100, 100, 100))  # match crop offset
-   result = evaluate_decisions_xpress(pipeline_candidates, pipeline_store, oracle)
+   gt_pairs = build_merge_oracle(graphs, seg, voxel_size_nm=(33, 33, 33),
+                                 seg_offset_voxels=(100, 100, 100))  # match crop offset
+   result = evaluate_decisions_xpress(pipeline_candidates, pipeline_store, gt_pairs)
    print(result)
    ```
-
----
-
-## Assessment: ConnectomeBench (arXiv:2511.05542)
-
-**Date:** 2026-02-27
-
-**Paper:** *ConnectomeBench: Can LLMs Proofread the Connectome?* (Nov 2025)
-
-**What it is:** A Q&A benchmark for evaluating LLMs on three connectomics proofreading tasks: (1) segment type identification, (2) split error correction, (3) merge error detection. Tested on mouse visual cortex and complete Drosophila brain datasets. LLMs score 75–85% accuracy on split error correction vs. 50% chance.
-
-**Is it feasible to test our pipeline against?**
-
-Not directly. The benchmark is structured as multiple-choice Q&A for LLMs — models are presented with image crops and asked which of several fragment candidates should be merged. Our pipeline is a rule-based system that takes a volumetric segmentation as input and outputs structured merge decisions, not text answers.
-
-The tasks conceptually overlap (split error correction = exactly what we do), but:
-- The evaluation interface is different (LLM text vs. pipeline accept/reject/ambiguous)
-- The benchmark data is not published as a downloadable segmentation volume
-- Adapting our pipeline to answer ConnectomeBench questions would require major re-framing
-
-**Useful context:** The ConnectomeBench results (75–85% LLM accuracy on split correction) provide a rough performance reference for the difficulty of the task. Our CREMI result (F1 = 0.952 after tuning, on a controlled dataset) is not directly comparable due to different datasets and evaluation setups.
-
-**Conclusion:** Note for future reference, but deprioritize. Focus on XPRESS as the primary evaluation target.
 
 ---
 
@@ -1438,8 +1415,8 @@ AND semantics ensures each fragment's degree is strictly ≤ max_partners.
 
 **FN diagnostic helper** (Priority 2, implemented alongside):
 
-`fn_diagnosis(candidates, store, oracle, report=None)` added to
-`evaluation/xpress_ground_truth.py`.  For each FN (rejected GT pair), extracts the first
+`fn_diagnosis(candidates, store, gt_pairs, report=None)` added to
+`evaluation/xpress_ground_truth.py`.  For each FN (rejected GT-positive pair), extracts the first
 REJECTED validation rule from the ValidationReport and returns a sorted list of dicts.  Use this
 to profile the 7 remaining FNs from Exp 17 and any new FNs introduced by the partner limit.
 
@@ -1542,7 +1519,7 @@ from connectomics_pipeline.evaluation.xpress_ground_truth import (
     build_merge_oracle, evaluate_decisions_xpress, fn_diagnosis
 )
 # After pipeline run (pipeline.report is the ValidationReport object):
-records = fn_diagnosis(pipeline.candidates, pipeline.store, oracle, report=pipeline.report)
+records = fn_diagnosis(pipeline.candidates, pipeline.store, gt_pairs, report=pipeline.report)
 for r in records:
     print(f"FN cid={r['candidate_id']} gap={r['gap_nm']:.0f}nm "
           f"composite={r['composite_score']:.3f} first_reject={r['first_reject_rule']}: "
@@ -1662,8 +1639,8 @@ New files added:
   - threshold=0.0 sentinel uses threshold stored in model file (chosen at training time)
 - `scripts/train_ml_filter.py` — offline training script:
   - Loads connections.csv + fragments.csv from pipeline output
-  - Builds ground-truth merge set from skeleton
-  - Maps candidates to oracle labels (TP=1 if label pair in oracle)
+  - Builds skeleton-derived ground-truth merge set
+  - Maps candidates to ground-truth labels (TP=1 if label pair in ground-truth set)
   - Trains `GradientBoostingClassifier(n_estimators=200, max_depth=4, subsample=0.8)`
     on accepted candidates only (ML filter is post-validation)
   - Stratified 5-fold CV for unbiased PR-AUC estimate
@@ -1850,7 +1827,7 @@ without broad regression.
 
 **Method:** CSV-based candidate-level evaluation using `label_id` from `fragments.csv`
 (matches pipeline's internal assignment from the segmentation volume).  For each rejected
-candidate whose (label_a, label_b) pair appears in the merge oracle, each rule's acceptance
+candidate whose (label_a, label_b) pair appears in the ground-truth merge set, each rule's acceptance
 criterion from the YAML config is applied and the first blocker is reported.
 
 **Important distinction — two configs:**
@@ -2221,6 +2198,267 @@ checking pairs between 975–1000nm, risking new FPs in that range.
 **Decision:** Reverted both configs to `skip_distance_nm: 1000` (Exp 24 baseline).
 The 5 hard CurvatureRule FNs at gaps 66–987nm are treated as unrecoverable without
 unacceptable precision regression. Exp 24 remains the best config (Recall=0.9958/0.9879).
+
+**Tests:** 428 total, 0 failures.
+
+---
+
+## Experiment 26: Gap-Stratified Precision Analysis
+
+**Date:** 2026-04-21
+**Objective:** The aggregate XPRESS precision of ~0.003 is a single number that hides large
+structural variation. Partition the Exp 24 candidates into gap-distance bins and recompute
+precision/recall within each bin to localise where the precision problem actually lives.
+
+**Method:** Pure post-processing of the existing `connections.csv` export — no pipeline re-run.
+New script `scripts/gap_stratified_precision.py`:
+1. Load `fragments.csv` → fragment_id → label_id map.
+2. Load `connections.csv` → candidate list with gap, composite, status.
+3. Load XPRESS skeletons + training segmentation, run `build_merge_oracle()` → 1,499 GT pairs.
+4. For each candidate, join label_a/label_b and check membership in the GT pair set.
+5. Bin by gap distance (edges: 0/100/200/300/500/750/1000/1500/2000/3000/20000 nm) and
+   compute per-bin TP, FP, FN, TN, precision, recall.
+6. Emit CSV + two-panel figure (precision + TP/FP counts on log scale).
+
+Runs:
+```bash
+# Training
+python scripts/gap_stratified_precision.py \
+    --output-dir output/xpress_training \
+    --seg data/xpress/baseline_seg_training.h5 \
+    --seg-key volumes/segmentation_0.550 \
+    --skel data/xpress/XPRESS_training_skels.npz \
+    --resolution 33 --out-dir docs
+
+# Validation (seg-offset 252 for held-out volume)
+python scripts/gap_stratified_precision.py \
+    --output-dir output/xpress_validation \
+    --seg data/xpress/baseline_seg_validation.h5 \
+    --seg-key volumes/segmentation_0.550 \
+    --skel data/xpress/XPRESS_validation_skels.npz \
+    --resolution 33 --seg-offset 252 252 252 \
+    --out-dir docs/validation
+```
+
+**Training results (369,570 candidates, 1,248 candidate-level TPs, 366,933 FPs):**
+
+| Gap bin (nm) | Candidates | TP | FP | Precision | Recall |
+|-------------:|-----------:|---:|---:|----------:|-------:|
+| [0, 100)     |   3,675    |  25 |   3,636 | 0.0068 | 0.96 |
+| [100, 200)   |   3,352    |  44 |   3,283 | 0.0132 | 1.00 |
+| [200, 300)   |   6,261    | 125 |   6,090 | 0.0201 | 0.99 |
+| [300, 500)   |  20,418    | 594 |  19,745 | **0.0292** | 1.00 |
+| [500, 750)   |   1,720    |  11 |   1,663 | 0.0066 | 1.00 |
+| [750, 1000)  |   8,670    |  35 |   8,021 | 0.0043 | 0.95 |
+| [1000, 1500) |  52,062    | 117 |  51,936 | 0.0022 | 1.00 |
+| [1500, 2000) | **222,788**| 203 | **222,572** | 0.0009 | 1.00 |
+| [2000, 3000) |   1,902    |  32 |   1,856 | 0.0169 | 1.00 |
+| [3000, 20000)|  48,720    |  62 |  48,131 | 0.0013 | 1.00 |
+| **Total**    | 369,570    | 1,248 | 366,933 | 0.0034 | 0.9960 |
+
+**Key findings:**
+
+1. **Precision peaks at [300, 500) nm = 0.029**, about **10× the aggregate** — where alignment
+   and continuity are most informative.
+2. **The [1500, 2000) nm bin dominates the FP budget:** 222,572 FPs (60.7% of all FPs) with
+   only 203 TPs (16.3%). The distance-conditioned long-range regime pays a heavy precision
+   price.
+3. **[1000, 2000) range as a whole:** 74.4% of candidates, 74.8% of FPs, 25.6% of TPs.
+4. **[2000, 3000) rebounds to 0.017 precision** — rare PCA-endpoint pairs on large fragments
+   where the bbox-tip estimate is only informative for genuine long axon splits.
+
+**Validation cross-check (203 GT pairs, 458,941 accepted):** same structural shape — [300, 500)
+is still the precision peak (0.0025) and [1500, 2000) dominates FPs (300,763 = 65.5% of total).
+Absolute precision is lower because fewer GT pairs exist per candidate, but the relative
+ordering across bins is preserved. This confirms the gap-precision structure is a property of
+the XPRESS domain (white matter axon density at long range), not an artifact of training-volume
+tuning.
+
+**Implications (added to `report/futurework.tex`):**
+
+1. **Gap-dependent accept thresholds.** A uniform `accept_threshold=0.25` is demonstrably
+   suboptimal given the 30× precision spread. A per-bin threshold — looser at short gaps,
+   stricter at long gaps — should retain short-range recall while cutting long-range FPs.
+2. **Gap-stratified ML retraining.** Exp 20's classifier was trained over the full gap
+   range. Given the feature distribution differs sharply between bins, a per-bin or
+   gap-conditioned classifier should improve the precision ceiling at recall ≥ 0.99.
+3. **Tightening `max_endpoint_search_nm` to 1000 nm** (reverse of Exp 13) would drop the
+   [1000, 2000) bins entirely: lose 320 TPs (25.6% of total), save ~270K FPs, yielding
+   Recall ≈ 0.73 at Precision ≈ 0.015. A substantially different operating point for
+   precision-sensitive deployment.
+
+**Artefacts committed:**
+- `scripts/gap_stratified_precision.py` — reproducible analysis
+- `docs/gap_stratified_precision.csv` + `.png` — training results
+- `docs/validation/gap_stratified_precision.csv` + `.png` — validation results
+- `report/images/gap_stratified_precision.png` — figure included in results chapter
+- New section "Gap-Stratified Precision Analysis" in `report/results.tex`
+
+**Tests:** 428 total, 0 failures (analysis is read-only; no pipeline code changed).
+
+---
+
+## Experiment 27: Neighborhood-Density Re-ranker (Positive — Modest Gain)
+
+**Date:** 2026-04-21
+**Objective:** Test the hypothesis that a same-axon split pair is locally
+isolated (its axon is the primary structure in the neighborhood), while a
+cross-axon FP sits in a crowd of other axons.  If true, a simple density
+count around the candidate midpoint should separate TP from FP among
+already-accepted candidates.
+
+**Method:** Pure post-processing of the Exp 24 accepted-candidate set, no
+pipeline code changes.  Script: `scripts/neighborhood_density_reranker.py`.
+
+Features per candidate (a, b):
+- `density_mid(R)`: count of other fragment centroids within R nm of the gap
+  midpoint
+- `density_max(R)`: max of the two per-fragment neighbor counts within R nm
+- Combined: `composite - alpha * log(1 + density_mid)` for `alpha` ∈ {0.05, 0.1, 0.2}
+
+Evaluated at R ∈ {500, 1000, 1500, 2000, 3000} nm against three recall
+targets (0.99, 0.95, 0.90, 0.85) on both XPRESS training and validation.
+
+**Training results (368,181 accepted, 1,248 TP, 366,933 FP):**
+
+| Recall | Composite baseline | density_mid_1500 | density_max_1500 | Rel. gain |
+|-------:|-------------------:|-----------------:|-----------------:|----------:|
+| 0.99   | 0.00338            | 0.00356          | 0.00353          | +4% |
+| 0.95   | 0.00341            | 0.00390          | 0.00393          | +15% |
+| 0.90   | 0.00336            | 0.00428          | 0.00446          | +33% |
+| 0.85   | 0.00331            | 0.00482          | 0.00495          | **+49%** |
+
+**Validation results (459,113 accepted, 172 TP, 458,941 FP):**
+
+| Recall | Composite baseline | density_mid_1500 | density_max_1500 | Rel. gain |
+|-------:|-------------------:|-----------------:|-----------------:|----------:|
+| 0.99   | 0.000375           | 0.000403         | 0.000396         | +6% |
+| 0.95   | 0.000382           | 0.000424         | 0.000446         | +17% |
+| 0.90   | 0.000382           | 0.000436         | 0.000537         | +41% |
+| 0.85   | 0.000374           | 0.000481         | 0.000561         | **+50%** |
+
+**Feature-distribution check:**
+- TP mean density_mid_1500 = 9.6, FP mean = 13.4 (28% separation)
+- TP mean density_max_1500 = 12.1, FP mean = 15.6 (22% separation)
+- Distributions overlap substantially but the means are cleanly distinct.
+
+**Key findings:**
+
+1. **Hypothesis confirmed qualitatively and quantitatively.** Density
+   discriminates TP from FP and delivers up to 49% relative precision gain
+   at recall 0.85.
+2. **Effect decays at high recall.** At recall 0.99, improvement is only
+   4–6% — density does not break the geometric-feature precision ceiling
+   where the pipeline currently operates.
+3. **Composite score is NOT a useful re-ranker for accepted candidates.**
+   Its PR curve within the accepted set is nearly flat at ~0.003 across
+   the full recall range.  This is because all accepted candidates occupy
+   a narrow composite band by construction.
+4. **Density alone is ~10× weaker than Exp 20's multi-feature ML filter**
+   (0.005 vs 0.037 at recall 0.85).  The two features encode different
+   signals (per-fragment degree vs local neighborhood crowding) and are
+   expected to be complementary in a retrained ensemble.
+5. **Validation reproduces the pattern.** Same ordering (+6% at 0.99,
+   +50% at 0.85) confirms this is a real property of XPRESS white matter,
+   not a training-set artefact.
+
+**Artifacts committed:**
+- `scripts/neighborhood_density_reranker.py` — reproducible analysis
+- `docs/density_summary.csv`, `density_pr_curve.png`, `density_distribution.png`, `density_enriched_accepted.csv` — training
+- `docs/validation/` — validation mirror
+- `report/images/density_pr_curve.png`, `density_distribution.png` — figures in results chapter
+- New section "Neighborhood-Density Re-ranker" in `report/results.tex`
+
+**Implication (added to `futurework.tex`):** density is a worthwhile feature
+to add to a retrained gap-stratified ML filter but insufficient as a
+standalone precision recovery strategy at recall ≥ 0.99.
+
+**Tests:** 428 total, 0 failures (post-processing only; no pipeline code touched).
+
+---
+
+## Experiment 28: Per-Bin Threshold Precision Ceiling
+
+**Date:** 2026-04-21
+**Objective:** Quantify the empirical ceiling on precision achievable by
+tuning the composite accept threshold separately per gap-distance bin, vs
+the single global threshold of Experiment 24. This sets an upper bound on
+what any gap-aware threshold-tuning strategy (including the ML filter
+variants suggested in futurework) can deliver.
+
+**Method:** Pure post-processing of Exp 24 accepted-candidate set. Script:
+`scripts/per_bin_threshold.py`. Two strategies:
+
+1. **Global baseline:** rank all accepted candidates by composite descending,
+   sweep acceptance prefix — equivalent to Exp 24's behavior after the fact.
+2. **Per-bin oracle ceiling:** sort candidates within each gap bin by
+   composite descending, greedy-merge streams: prefer bins whose NEXT
+   candidate is a TP; tie-break / fill by highest remaining TP-density.
+   Since ground-truth labels drive the merge, this is a genuine oracle
+   ceiling — any realizable per-bin policy sits on or below it.
+
+**Training results (368,181 accepted; 1,248 TP; 366,933 FP):**
+
+| Recall | Global baseline | Per-bin oracle | Relative gain |
+|-------:|----------------:|---------------:|--------------:|
+| 0.99   | 0.00338         | 0.00342        | +1.3%         |
+| 0.95   | 0.00341         | 0.00397        | +16.4%        |
+| 0.90   | 0.00336         | 0.00507        | +50.6%        |
+| 0.85   | 0.00331         | 0.00677        | **+104%**     |
+| 0.80   | 0.00327         | 0.00854        | +161%         |
+| 0.70   | 0.00324         | 0.01687        | **+421%**     |
+
+**Validation results (459,113 accepted; 172 TP; 458,941 FP):**
+
+| Recall | Global baseline | Per-bin oracle | Relative gain |
+|-------:|----------------:|---------------:|--------------:|
+| 0.99   | 0.000375        | 0.000409       | +9%           |
+| 0.95   | 0.000382        | 0.000546       | +43%          |
+| 0.90   | 0.000382        | 0.000873       | +129%         |
+| 0.85   | 0.000374        | 0.001043       | +179%         |
+| 0.80   | 0.000367        | 0.001430       | +289%         |
+| 0.70   | 0.000347        | 0.003029       | **+773%**     |
+
+**Key findings:**
+
+1. **Recall 0.99 ceiling is effectively flat.** 1.3% (training) / 9%
+   (validation) gain. The hardest-to-recover 1% of TPs are scattered
+   across the same bins that hold the bulk of the FPs. No per-bin
+   reallocation can cut FPs without sacrificing those TPs. This
+   explains structurally why Exp 20's ML filter could not maintain
+   recall ≥ 0.99 with meaningful precision gain — the ceiling is
+   intrinsic to (composite + gap_bin), not an ML-architecture flaw.
+
+2. **Recall ≤ 0.90 ceiling is substantially higher.** +51% at 0.90,
+   +104% at 0.85, +421% at 0.70 on training (even larger on validation).
+   Per-bin thresholding IS a meaningful deployment lever at these
+   operating points.
+
+3. **Density re-ranker (Exp 27) is near-ceiling.** Density at recall
+   0.85 reached 0.005 precision; per-bin oracle reaches 0.007. Density
+   therefore captures nearly all the gap-bin-aware precision signal.
+   Further gains require features orthogonal to (composite, gap_bin),
+   e.g. per-fragment degree (Exp 20) or raw image evidence.
+
+4. **Exp 20's degree feature breaks the ceiling.** Exp 20 ML filter
+   achieved 0.037 at recall 0.85 — 5× the per-bin oracle ceiling of
+   0.007. Per-fragment degree encodes information outside the
+   (composite, gap_bin) subspace, which is why the degree-based filter
+   beat geometric scoring where density alone could not.
+
+**Interpretation:** (composite_score, gap_bin) is an information-limited
+feature pair. At recall ≥ 0.99, every bin contributes hard-to-recover
+TPs and no per-bin policy can filter FPs selectively. At recall ≤ 0.90,
+entire bins can be dropped and precision improves by 2–5×. Any future
+precision work must either (a) target recall ≤ 0.90 with a per-bin
+policy or (b) introduce features orthogonal to (composite, gap_bin).
+
+**Artifacts committed:**
+- `scripts/per_bin_threshold.py`
+- `docs/per_bin_threshold_summary.csv`, `per_bin_threshold_curves.csv`, `per_bin_threshold_pr.png`
+- `docs/validation/` — validation mirror
+- `report/images/per_bin_threshold_pr.png`
+- New section "Per-Bin Threshold Precision Ceiling" in `report/results.tex`
 
 **Tests:** 428 total, 0 failures.
 
