@@ -2,7 +2,7 @@
 
 The CREMI Drosophila EM dataset serves as a correctness benchmark. Because the
 input is human-annotated labels rather than automated segmentation output, the
-oracle contains only genuine split errors (none of the ambiguity introduced by
+ground-truth set contains only genuine split errors (none of the ambiguity introduced by
 an imperfect automated segmenter). This makes CREMI well-suited for verifying
 that the validation rules reject false positives while accepting true positives.
 
@@ -19,24 +19,26 @@ development log).
 Metric & Value & Notes \\
 \midrule
 Fragments & 243 & After stitching \\
-Candidates generated & 3{,}370 & \\
-Accepted & 10 & \\
-Rejected & 3{,}360 & \\
-True Positives & 10 & \\
+Candidates generated & 3{,}369 & \\
+Accepted & 20 & \\
+Rejected & 3{,}339 & \\
+Ambiguous & 10 & \\
+True Positives & 20 & \\
 False Positives & 0 & \\
-False Negatives & 1 & \\
+False Negatives & 2 & \\
 Precision & 1.000 & \\
-Recall & 0.909 & \\
+Recall & 0.909 & 20 / 22 \\
 F1 & 0.952 & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The single false negative is a pair connected at an acute curvature that
-CurvatureRule correctly identifies as implausible; in this case, the
-ground-truth neuron genuinely bends sharply, and the current threshold does
-not recover it. The perfect precision (zero false positives) confirms that the
-conservative rule set does not over-merge.
+The two false negatives are pairs whose composite scores fall below the
+\texttt{CompositeScoreRule} threshold of 0.65 --- one short-gap pair with
+alignment-and-continuity-default scoring (composite $\approx 0.38$), and one
+borderline pair whose ground-truth neuron bends sharply enough that the
+CurvatureRule correctly flags it as implausible. The perfect precision (zero
+false positives) confirms that the conservative rule set does not over-merge.
 
 \section{XPRESS Training Volume: Experiment Progression}
 
@@ -48,7 +50,7 @@ Recall = 0.9958. Table~\ref{tab:xpress_progress} summarizes key experiments.
 \begin{table}[H]
 \centering
 \caption{XPRESS training volume experiment progression. Each row shows the key
-change from the previous experiment, oracle coverage, and recall on covered pairs.}
+change from the previous experiment, ground-truth coverage, and recall on covered pairs.}
 \label{tab:xpress_progress}
 \small
 \begin{tabularx}{\textwidth}{@{}l>{\RaggedRight}Xrr>{\RaggedRight}X@{}}
@@ -93,8 +95,14 @@ Three changes account for most of the recall improvement:
         decays exponentially with distance and reaches $\approx 0.03$ at 1000~nm.
         Switching to the proximity-free weight vector $(0, 0.45, 0.40, 0.15)$
         for long-range pairs prevented the suppression of genuine long-range
-        splits, raising recall from 0.898 to 0.889 on long-range pairs and
-        extending coverage by 1.8 percentage points.
+        splits: 27 new ground-truth pairs that were previously filtered out by
+        the \texttt{min\_composite\_score} floor (because proximity collapsed
+        their score below the threshold) now entered the candidate pool,
+        extending coverage by 1.8 percentage points (81.7\% $\to$ 83.5\%).
+        Because these newly recovered pairs were harder cases (48\% accept
+        rate vs 90\% for pre-existing pairs), aggregate recall moved slightly
+        from 0.898 to 0.889 before subsequent tuning (Experiments 16--17)
+        raised it again.
 
   \item \textbf{Experiment 17 (MaxDistance + SizeDiscrepancy):} PCA-based
         endpoint pairs can span up to $\sim$12{,}000~nm (the tip-to-tip distance
@@ -146,12 +154,13 @@ Experiment 19 configuration, reducing FN from 43 to 5.
 \toprule
 Metric & Value \\
 \midrule
-Fragments & 12{,}935 \\
-Graph edges & $\approx$880{,}000 \\
-Oracle pairs & 1{,}499 \\
+Fragments & 11{,}208 \\
+Candidates generated & 369{,}570 \\
+Candidates accepted & 368{,}181 \\
+Ground-truth pairs & 1{,}499 \\
 Coverage & 78.7\% (1{,}180 / 1{,}499) \\
 True Positives (TP) & 1{,}175 \\
-False Positives (FP) & $\approx$349{,}000 \\
+False Positives (FP) & 366{,}933 \\
 False Negatives (FN) & 5 \\
 Recall & \textbf{0.9958} \\
 Precision & $\approx$0.003 \\
@@ -159,7 +168,7 @@ Precision & $\approx$0.003 \\
 \end{tabular}
 \end{table}
 
-The 319 oracle pairs not covered by the candidate graph fall into two categories:
+The 319 ground-truth pairs not covered by the candidate graph fall into two categories:
 247 are structurally unreachable at the current 2000~nm search radius (172 pairs
 with true gap $> 2000$~nm; 75 involving PCA-only large fragments whose tip-to-tip
 distance does not span the gap), and the remaining 72 score below the acceptance
@@ -169,9 +178,10 @@ pairs fail the CurvatureRule (direction reversal exceeding 150$^\circ$, gap
 threshold but below CurvatureRule's hard reject.
 
 \paragraph{The precision challenge.}
-Precision = 0.004 reflects a fundamental challenge of the XPRESS domain: at
-2000~nm search radius, the skeleton-node graph generates $\sim$880{,}000 edges,
-of which the vast majority are between different axons whose local geometry
+Precision $\approx$ 0.003 reflects a fundamental challenge of the XPRESS
+domain: at the 2000~nm search radius, the pipeline generates 369{,}570
+candidates, of which the vast majority are between different axons whose
+local geometry
 happens to be compatible. The pipeline's geometric features (alignment, continuity)
 are informative for ruling out obviously incorrect pairs, but are insufficient
 to discriminate same-axon from cross-axon pairs at long range.
@@ -235,7 +245,7 @@ Total & 43 & & \\
 
 MinGapRule was the dominant false-negative cause (86\%) in this diagnostic
 configuration. Experiment~24 resolved this by setting \texttt{min\_gap\_nm} = 0,
-recovering all 37 MinGapRule FN candidates and 114 additional oracle pairs
+recovering all 37 MinGapRule FN candidates and 114 additional ground-truth pairs
 (whose best candidates all had gap $< 150$~nm), and raising training recall
 to 0.9958. The CurvatureRule FNs (4 cases here, 5 in Exp 24 after further
 parameter changes) remain the only unresolved source of false negatives.
@@ -243,7 +253,7 @@ parameter changes) remain the only unresolved source of false negatives.
 \section{Held-Out Validation Results (Experiments 23 and 24)}
 
 To assess generalization, the pipeline was applied unchanged to the XPRESS
-held-out validation volume ($699^3$ voxels, 203 oracle merge pairs, offset
+held-out validation volume ($699^3$ voxels, 203 ground-truth merge pairs, offset
 (252, 252, 252) voxels within the full-volume coordinate system). Two
 configurations were evaluated: Experiment 23 uses the Experiment 17 config
 (MinGapRule active at 150~nm); Experiment 24 uses the final best config
@@ -260,7 +270,7 @@ two configurations.}
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
 Metric & Training & Validation & Training & Validation \\
 \midrule
-Oracle pairs & 1{,}499 & 203 & 1{,}499 & 203 \\
+Ground-truth pairs & 1{,}499 & 203 & 1{,}499 & 203 \\
 Coverage & 75.9\% & 72.4\% (147) & 78.7\% (1{,}180) & 81.3\% (165) \\
 TP & 1{,}097 & 127 & 1{,}175 & 163 \\
 FN & 43 & 20 & 5 & 2 \\
@@ -285,7 +295,7 @@ Figures~\ref{fig:accepted} and~\ref{fig:rejected} show representative candidate
 pairs from the XPRESS training volume using the three-panel layout described in
 Section~\ref{sec:visual-validation}: neutral segmentation with skeleton overlay
 (Panel~1), pipeline prediction with score breakdown (Panel~2), and ground-truth
-oracle verdict (Panel~3).  Candidates are cropped to a 200$\times$200 voxel
+ground-truth verdict (Panel~3).  Candidates are cropped to a 200$\times$200 voxel
 window ($6{,}600\,\text{nm}$ on a side) centered at the midpoint between the two
 fragment centroids, large enough to show both fragments and the gap between them.
 Same-label pairs (two fragments of the same segment, which trivially score 1.0)
@@ -300,9 +310,9 @@ are excluded from sampling.
   segment; yellow dots/lines show ground-truth skeleton nodes near the Z-slice.
   \textbf{Center (Panel~2):} Fragment~A in red, Fragment~B in blue, with the
   proposed connection arrow (ACC badge) and all five component scores.
-  \textbf{Right (Panel~3):} Oracle verdict (TP/FP/FN/TN badge); bright yellow
+  \textbf{Right (Panel~3):} Ground-truth verdict (TP/FP/FN/TN badge); bright yellow
   skeleton highlights the neurons passing through both fragments, with a dashed
-  line marking oracle-positive crossings. The FP outcomes for these candidates
+  line marking ground-truth-positive edge crossings. The FP outcomes for these candidates
   reflect the low precision of the pipeline at this operating point: with
   ${\sim}368{,}000$ accepted candidates and only ${\sim}1{,}494$ true positives,
   even geometrically compelling pairs are predominantly false accepts.  The
@@ -316,7 +326,7 @@ are excluded from sampling.
   \caption{Borderline rejected candidates (highest composite scores among all
   rejected, non-same-label connections).  These are the cases the pipeline
   declines to merge while scoring closest to acceptance.  All three shown are
-  TN (correct rejections): the oracle confirms no skeleton crossing between the
+  TN (correct rejections): the ground truth confirms no skeleton crossing between the
   two fragments, consistent with the pipeline's decision.  The skeleton overlay
   in Panel~1 makes the absence of a crossing evident: the ground-truth axon
   paths run through each fragment independently without bridging the gap.}
@@ -327,12 +337,418 @@ The accepted panels (Figure~\ref{fig:accepted}) reveal an important characterist
 of the pipeline's operating regime: the composite score is optimised for recall,
 not precision.  At the validation threshold used in Experiment~24, the pipeline
 accepts ${\sim}368{,}000$ candidates to achieve ${\sim}0.996$ recall on the
-$1{,}499$ oracle pairs, a design choice that requires a downstream filtering
+$1{,}499$ ground-truth pairs, a design choice that requires a downstream filtering
 step (e.g., the ML filter from Experiment~20) for deployment scenarios where
 precision matters.  The borderline rejected panels (Figure~\ref{fig:rejected})
 confirm that the rejection decisions are consistent with the geometric evidence:
-cases where alignment and continuity scores are high but the oracle confirms
+cases where alignment and continuity scores are high but the ground truth confirms
 no true split error exist.
+
+\paragraph{Ground-truth TP inspection (end-to-end validation).}
+Through Experiment~25 all evaluation was metric-driven (coverage, recall,
+precision).  The ground-truth TP sampling category described in
+Section~\ref{sec:visual-validation} closes this loop by filtering to the
+intersection of pipeline-accepted and ground-truth-positive candidates and
+asking, for each sampled row, whether the proposed merge is anatomically
+real.  Running the inspection on the Experiment~24 training output (top
+five ground-truth TPs by composite score, written to
+\texttt{docs/visual\_report\_tp\_inspection.pdf}) confirmed that each
+inspected TP is a genuine biological split: the ground-truth skeleton
+visibly traverses both fragments, the fragments are morphologically
+continuous across the gap, and the skeleton overlay in Panel~3 occupies
+both label regions with a dashed ground-truth-positive indicator.  This is
+the final non-automated layer of end-to-end validation and should be
+re-run after any change that alters accepted-candidate composition.
+
+\section{Gap-Stratified Precision Analysis}
+\label{sec:gap-stratified}
+
+The aggregate XPRESS precision of $\approx$0.003 on the Experiment~24 training
+output is a single number that conceals large structural heterogeneity.  To
+localize where the precision problem lives, we partitioned the 369{,}570
+candidates into gap-distance bins and recomputed per-bin precision, recall,
+and candidate volume using the same skeleton-edge-crossing ground-truth
+construction described in Chapter~\ref{ch:methodology}.  This analysis is a
+pure post-processing pass over the existing \texttt{connections.csv} export;
+no pipeline re-run was required.  The analysis script is reproducible at
+\texttt{scripts/gap\_stratified\_precision.py}.  Results are summarized in
+Table~\ref{tab:gap_stratified} and Figure~\ref{fig:gap_stratified}.
+
+\begin{table}[H]
+\centering
+\caption{Per-bin precision/recall on the Experiment~24 training volume.  ``TP''
+and ``FP'' are candidate-level counts (each accepted candidate contributes
+independently).  ``Candidates'' is total generated (accepted $+$ rejected)
+within the bin.  Precision is computed from candidate counts; recall from
+covered ground-truth pairs within the bin.  Note: the candidate-level TP total
+of 1{,}248 differs from the 1{,}175 ``unique GT merge pairs accepted'' figure
+reported in Table~\ref{tab:xpress_best} because a single ground-truth pair can
+appear as multiple distinct accepted candidates (e.g., when several skeleton
+edges of the same axon cross the fragment boundary).  Both accountings
+describe the same underlying run.}
+\label{tab:gap_stratified}
+\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Gap bin (nm) & Candidates & TP & FP & Precision & Recall \\
+\midrule
+$[0, 100)$       & 3{,}675    & 25    & 3{,}636     & 0.0068 & 0.96 \\
+$[100, 200)$     & 3{,}352    & 44    & 3{,}283     & 0.0132 & 1.00 \\
+$[200, 300)$     & 6{,}261    & 125   & 6{,}090     & 0.0201 & 0.99 \\
+$[300, 500)$     & 20{,}418   & 594   & 19{,}745    & \textbf{0.0292} & 1.00 \\
+$[500, 750)$     & 1{,}720    & 11    & 1{,}663     & 0.0066 & 1.00 \\
+$[750, 1000)$    & 8{,}670    & 35    & 8{,}021     & 0.0043 & 0.95 \\
+$[1000, 1500)$   & 52{,}062   & 117   & 51{,}936    & 0.0022 & 1.00 \\
+$[1500, 2000)$   & \textbf{222{,}788} & 203 & \textbf{222{,}572} & 0.0009 & 1.00 \\
+$[2000, 3000)$   & 1{,}902    & 32    & 1{,}856     & 0.0169 & 1.00 \\
+$[3000, 20000)$  & 48{,}720   & 62    & 48{,}131    & 0.0013 & 1.00 \\
+\midrule
+Total            & 369{,}570  & 1{,}248 & 366{,}933 & 0.0034 & 0.9960 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{gap_stratified_precision.png}
+\caption{XPRESS Experiment~24 per-bin analysis. \textbf{Top:} in-bin precision
+on a log scale, peaking at 0.029 in the $[300, 500)$~nm bin (about $10\times$
+the overall figure) and collapsing to 0.0009 in the $[1500, 2000)$~nm bin.
+\textbf{Bottom:} true-positive (green) and false-positive (red) candidate
+counts per bin on a symlog scale. The $[1500, 2000)$~nm bin alone accounts for
+60.7\% of all false positives (222{,}572 of 366{,}933) while contributing
+only 16.3\% of true positives.}
+\label{fig:gap_stratified}
+\end{figure}
+
+\paragraph{Findings.}
+Three structural observations emerge:
+
+\begin{enumerate}
+  \item \textbf{Short-gap precision is an order of magnitude higher.}
+        The $[100, 500)$~nm bins achieve precision 0.013--0.029, compared to
+        the overall 0.003.  These gap sizes correspond to genuine interior
+        skeleton-node splits where the two fragments are close enough that
+        alignment and continuity scores are informative.
+
+  \item \textbf{Long-range pairs dominate the FP budget.}
+        The $[1000, 2000)$~nm range --- the regime where the distance-conditioned
+        weight vector is active --- contains 74.4\% of all candidates
+        (274{,}850 / 369{,}570) and 74.8\% of all false positives
+        (274{,}508 / 366{,}933), but only 25.6\% of true positives
+        (320 / 1{,}248).  The long-range pass pays a precision price that
+        short-range scoring does not.
+
+  \item \textbf{Precision rebounds at $[2000, 3000)$~nm}
+        (0.017, second-highest of all bins) because these candidates are rare
+        (1{,}902 total) and most arise from PCA-endpoint pairings on large
+        fragments, where the bbox-tip estimate is only informative for
+        genuine long axon splits.  Above 3{,}000~nm, spurious PCA pairings
+        dominate and precision drops again.
+\end{enumerate}
+
+\paragraph{Generalization to validation volume.}
+Running the same post-processing on the Experiment~24 held-out validation
+output reproduces the same shape: the $[300, 500)$~nm bin is the precision
+peak (0.0025) and the $[1500, 2000)$~nm bin alone contains 65.5\% of all
+false positives (300{,}763 / 458{,}941).  The absolute precision numbers
+are lower on validation because there are fewer ground-truth pairs per
+candidate (203 vs.\ 1{,}499), but the relative ordering across bins is
+preserved.  This confirms that the precision-by-gap structure is a
+property of the XPRESS domain (white matter axon density at long range),
+not an artifact of training-volume tuning.
+
+\paragraph{Implications for future precision work.}
+Three directions follow directly from the per-bin decomposition:
+
+\begin{itemize}
+  \item A gap-dependent accept threshold --- looser at $[100, 500)$~nm, much
+        stricter at $[1000, 2000)$~nm --- would retain most TPs while cutting
+        most FPs.  The $[300, 500)$~nm bin retains 594 TPs at precision 0.029
+        with a uniform threshold; moving the $[1500, 2000)$~nm threshold up
+        to discard its 222{,}572 FPs would cost at most 203 TPs.
+  \item The machine-learned filter of Experiment~20 should be retrained
+        stratified by gap, since the feature distribution and operating
+        point differ sharply between bins.
+  \item Reducing \texttt{max\_endpoint\_search\_nm} from 2000 to 1000~nm is
+        worth re-testing.  Experiment~13 (3000~nm) was rejected for recall
+        regression, but the reverse direction --- tightening to 1000~nm ---
+        would discard the long-range bins entirely, lose the 117 TPs at
+        $[1000, 1500)$~nm and 203 at $[1500, 2000)$~nm (25.6\% of total TPs),
+        and save $\sim$270{,}000 FPs.  This would yield recall near 0.73
+        at precision $\approx$0.015, a substantially different operating
+        point that may be preferable when precision matters more than
+        absolute recall.
+\end{itemize}
+
+\section{Neighborhood-Density Re-ranker}
+\label{sec:density-reranker}
+
+The per-bin analysis (Section~\ref{sec:gap-stratified}) localizes the
+precision problem to the long-range regime but does not explain why one
+long-range candidate is a true split and another is not.  A natural
+hypothesis --- motivated by the direction-weighted scoring story of
+Experiment~24 --- is that a genuine same-axon split pair is
+\emph{locally isolated}: its axon is the primary structure in the
+neighborhood.  A cross-axon false positive sits in a crowd of other axons
+that makes many geometrically-plausible alternatives to the pipeline's
+chosen partner.  A simple count of other fragments in the neighborhood
+of the candidate should therefore separate TPs from FPs even after the
+composite score has already accepted both.
+
+This section tests that hypothesis as a post-hoc re-ranker on the
+Experiment~24 accepted-candidate set.  The analysis script
+(\texttt{scripts/neighborhood\_density\_reranker.py}) is pure
+post-processing: no pipeline code or pipeline configuration is modified.
+
+\paragraph{Feature definition.}
+For each accepted candidate with fragments $a$ and $b$:
+\begin{align*}
+\text{mid}    &= (\text{centroid}_a + \text{centroid}_b) / 2 \\
+\text{density\_mid}(R) &= \big|\{\,c : c \neq a, b \text{ and } \|\text{centroid}_c - \text{mid}\| \le R\,\}\big| \\
+\text{density\_max}(R) &= \max\left(|\mathcal{N}_R(a)|,\, |\mathcal{N}_R(b)|\right) - 2
+\end{align*}
+where $\mathcal{N}_R(f)$ is the set of fragment centroids within radius $R$
+of fragment $f$'s centroid.  We evaluated $R \in \{500, 1000, 1500, 2000, 3000\}$~nm;
+$R = 1500$~nm gave the best precision-at-recall scores and is used in the
+figures below.
+
+\paragraph{Distribution of the feature.}
+Figure~\ref{fig:density-distribution} shows the per-candidate density
+distributions stratified by ground-truth status.  The TP distribution is
+visibly shifted toward lower density: for \texttt{density\_mid\_1500}, TP
+mean is 9.6 vs FP mean 13.4; for \texttt{density\_max\_1500}, TP mean is
+12.1 vs FP mean 15.6.  The two distributions overlap substantially but
+the means are distinct, confirming the qualitative hypothesis.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{density_distribution.png}
+\caption{Neighborhood-density feature distributions for the 368{,}181
+Experiment~24 accepted candidates, stratified by ground-truth status
+(TP = accepted $\land$ GT-positive, FP = accepted $\land$ $\neg$GT).
+\textbf{Left:} \texttt{density\_mid\_1500} (count of fragment centroids
+within 1{,}500~nm of the candidate midpoint). \textbf{Right:}
+\texttt{density\_max\_1500} (max of the per-fragment counts). The TP
+distribution is shifted toward lower density in both cases.}
+\label{fig:density-distribution}
+\end{figure}
+
+\paragraph{Re-ranker performance.}
+Table~\ref{tab:density-reranker} reports precision at fixed recall
+targets for three ranking strategies: the baseline composite score
+(descending), the density features alone (ascending), and a combined
+score that adds $\alpha \log(1 + \text{density\_mid})$ as a penalty
+term.  The composite-score baseline within the already-accepted set is
+remarkably uninformative --- precision varies by less than 3\% across
+the 0.85--0.99 recall range --- reflecting that all accepted candidates
+occupy a narrow composite-score band by construction.  The density
+features provide a genuine if modest improvement at mid-recall,
+reaching a 49\% relative gain at recall $0.85$.
+
+\begin{table}[H]
+\centering
+\caption{Precision at fixed recall targets on Experiment~24 accepted
+candidates (training volume).  Numbers in parentheses show the validation
+volume.  ``Rel.'' is the relative improvement of
+\texttt{density\_max\_1500} over the composite-score baseline on training.}
+\label{tab:density-reranker}
+\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Recall & Composite baseline & density\_mid\_1500 & density\_max\_1500 & Rel. \\
+\midrule
+0.99 & 0.0034 \,(0.00038) & 0.0036 \,(0.00040) & 0.0035 \,(0.00040) & $+$4\% \\
+0.95 & 0.0034 \,(0.00038) & 0.0039 \,(0.00042) & 0.0039 \,(0.00045) & $+$15\% \\
+0.90 & 0.0034 \,(0.00038) & 0.0043 \,(0.00044) & 0.0045 \,(0.00054) & $+$33\% \\
+0.85 & 0.0033 \,(0.00037) & 0.0048 \,(0.00048) & 0.0049 \,(0.00056) & $+$49\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{density_pr_curve.png}
+\caption{Precision-recall curves on the 368{,}181 Experiment~24 accepted
+candidates for four ranking strategies: composite score (blue, baseline),
+density\_mid\_1500 (red), density\_max\_1500 (green), and a combined
+score composite $+ 0.1 \log(1 + \text{density\_mid\_1500})$ (purple).
+Density features dominate the baseline across the 0.2--0.95 recall
+range.  Note the log-scale on precision.  All curves converge at
+recall $=1$, where every accepted candidate is kept and precision is
+the aggregate 0.0034.}
+\label{fig:density-pr}
+\end{figure}
+
+\paragraph{Findings.}
+
+\begin{enumerate}
+  \item \textbf{The hypothesis is empirically confirmed.}  Accepted-candidate
+        density distributions differ between TP and FP populations
+        (TP mean $\approx 25\%$ lower than FP mean at $R=1500$~nm), and a
+        density-only re-ranker improves precision over composite-score
+        re-ranking by up to 49\% at recall 0.85.
+
+  \item \textbf{The effect decays sharply at high recall.}  At recall 0.99
+        the improvement is only 4--6\% in both training and validation,
+        because the $\sim$1\% of TPs that are hardest to recover have density
+        indistinguishable from the FP background.  Density alone does not
+        break the geometric-features precision ceiling at the recall target
+        where the pipeline currently operates.
+
+  \item \textbf{Composite score is not a useful re-ranker for already-accepted
+        candidates.}  Its PR curve within the accepted set is nearly flat at
+        precision $\approx 0.003$ across the full recall range
+        (Figure~\ref{fig:density-pr}).  All accepted candidates have, by
+        construction, composite scores above the acceptance threshold, and
+        within that band score magnitude carries little signal about
+        ground-truth status.
+
+  \item \textbf{Density is complementary, not redundant, with the degree
+        feature of Experiment~20.}  The ML filter of Experiment~20 achieved
+        precision 0.037 at recall 0.85 using per-fragment degree.  Density
+        at recall 0.85 achieves only 0.005 on its own --- an order of
+        magnitude weaker --- but the two features encode different signals
+        (how many partners has this fragment been paired with vs.\ how
+        crowded is the local neighborhood).  The combined composite + density
+        score (purple curve) does \emph{not} beat density alone in our
+        experiments, because composite is a pure noise term on this slice;
+        a learned combination with the degree feature is expected to do
+        better and is left for future work.
+
+  \item \textbf{Validation reproduces the pattern.}  On the held-out
+        validation volume, the same relative improvement ordering holds
+        (+6\% at recall 0.99, +50\% at recall 0.85), confirming that
+        density is a real signal in this domain rather than a
+        training-set artifact.
+\end{enumerate}
+
+\paragraph{Implication.}
+The neighborhood-density feature is a worthwhile addition to any future
+learned post-filter but is insufficient as a standalone precision
+recovery strategy at recall $\geq 0.99$.  This is consistent with the
+overall narrative of the XPRESS precision challenge: no single
+geometric signal separates same-axon from cross-axon pairs at the
+density of myelinated white matter, and meaningful precision gains at
+high recall will require either multi-feature ML (retrained on features
+including density) or access to raw image data.
+
+\section{Per-Bin Threshold Precision Ceiling}
+\label{sec:per-bin-threshold}
+
+Sections~\ref{sec:gap-stratified} and~\ref{sec:density-reranker}
+characterized the precision problem and attempted a single-feature
+remedy.  A natural follow-up question is: \emph{what is the best
+precision any pipeline variant can achieve if its only degree of
+freedom is a per-gap-bin composite threshold?}  This sets an empirical
+ceiling on all gap-aware threshold-tuning strategies --- including
+the gap-dependent accept thresholds suggested by Section~\ref{sec:gap-stratified}
+and any future ML filter whose inputs are limited to the current
+geometric scores plus gap bin.  Quantitative results are summarized in
+Table~\ref{tab:per-bin-threshold} and the full PR frontier is shown
+in Figure~\ref{fig:per-bin-threshold}.
+
+\paragraph{Method.}
+For each accepted candidate we know the gap bin, the composite score,
+and the ground-truth label.  The per-bin ceiling is constructed
+by sorting candidates within each gap bin by composite score
+(descending) and then merging the per-bin streams greedily: at each
+step, whichever bin has a ground-truth positive at its next pointer
+contributes that candidate for free; when no such bin exists, the bin
+with the highest remaining TP-density (remaining TPs / remaining
+candidates) contributes its next candidate.  This produces a global
+PR curve that is the upper envelope across all per-bin
+threshold-assignment strategies.  The construction uses ground-truth
+labels to determine the merge order, so it represents an upper bound;
+any learnable per-bin policy will sit on or below this curve.
+
+\begin{table}[H]
+\centering
+\caption{Precision at fixed recall targets for the global composite
+threshold (Experiment~24 baseline) vs the per-bin ground-truth ceiling.
+Numbers in parentheses are the held-out validation volume.
+``Rel.~gain'' is the relative precision improvement of per-bin vs
+global on the training volume.}
+\label{tab:per-bin-threshold}
+\small
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Recall & Global baseline & Per-bin ceiling & Rel.~gain \\
+\midrule
+0.99 & 0.0034 \,(0.00038) & 0.0034 \,(0.00041) & $+$1.3\% \\
+0.95 & 0.0034 \,(0.00038) & 0.0040 \,(0.00055) & $+$16.4\% \\
+0.90 & 0.0034 \,(0.00038) & 0.0051 \,(0.00087) & $+$50.6\% \\
+0.85 & 0.0033 \,(0.00037) & 0.0068 \,(0.00104) & $+$104\% \\
+0.80 & 0.0033 \,(0.00037) & 0.0085 \,(0.00143) & $+$161\% \\
+0.70 & 0.0032 \,(0.00035) & \textbf{0.0169} \,(\textbf{0.00303}) & $+$421\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{per_bin_threshold_pr.png}
+\caption{Precision-recall frontier for the two strategies on the
+Experiment~24 accepted-candidate set.  \textbf{Blue:} the global
+composite threshold (the baseline behavior of Experiment~24 after the
+fact) is nearly flat at precision $\approx 0.003$ across the full
+recall range.  \textbf{Red:} the per-bin ground-truth ceiling reaches
+$\sim$4\% precision at low recall and holds above 1\% up to recall
+$\approx 0.80$ before collapsing to meet the baseline at recall 1.
+The two curves converge at recall $1$ where every accepted candidate
+is kept.  Log-scale precision.}
+\label{fig:per-bin-threshold}
+\end{figure}
+
+\paragraph{Findings.}
+
+\begin{enumerate}
+  \item \textbf{The recall-0.99 ceiling is nearly flat.}  At recall 0.99
+        the per-bin ceiling gains only 1.3\% over the global baseline
+        (9\% on validation).  The hardest-to-recover 1\% of TPs are
+        scattered across the same bins that hold the bulk of the FPs, so
+        no per-bin threshold allocation can cut FPs meaningfully without
+        sacrificing those TPs.  This explains why Experiment~20's ML
+        filter could not maintain recall $\geq 0.99$ with meaningful
+        precision improvement: the ceiling is intrinsic to the
+        geometric feature space plus gap bin, not an ML-architecture
+        shortcoming.
+
+  \item \textbf{The recall-$\leq 0.90$ ceiling is substantially higher.}
+        At recall 0.90, per-bin thresholding can reach 0.005 precision
+        ($+51\%$); at recall 0.85, 0.007 ($+104\%$); at recall 0.70,
+        0.017 ($+421\%$).  These are the operating points at which
+        per-bin threshold tuning becomes a meaningful deployment lever.
+
+  \item \textbf{Validation reproduces the structure.}  On the held-out
+        volume the absolute precision numbers are lower, but the
+        relative gain ordering is preserved: +9\% at recall 0.99 rising
+        to +773\% at recall 0.70.
+
+  \item \textbf{Comparing to alternative precision strategies.}
+        Experiment~20's ML filter reached precision 0.037 at recall
+        0.85.  The per-bin ceiling at recall 0.85 is 0.007 --- 5x
+        lower --- meaning Experiment~20's degree-feature signal gave
+        access to information beyond what any gap-aware threshold
+        strategy can capture.  Conversely, the density re-ranker of
+        Section~\ref{sec:density-reranker} peaked at 0.005 at recall
+        0.85, which is close to the per-bin ceiling: density
+        plus gap captures nearly all the gap-bin-aware precision
+        signal, and further gains require orthogonal features such
+        as per-fragment degree or raw-image evidence.
+\end{enumerate}
+
+\paragraph{Implication.}
+Per-bin threshold tuning is a concrete, low-risk deployment lever at
+recall $\leq 0.90$ but delivers essentially nothing at recall 0.99.
+Any future work targeting high-recall precision must combine
+orthogonal feature classes (per-fragment degree, neighborhood density,
+skeleton-morphology features, or raw image evidence) rather than
+merely redistributing the existing composite score.  This result
+constrains the design of the recommended multi-feature gap-stratified
+ML filter (Chapter~\ref{ch:futurework}): a useful model must move
+decisions outside the convex hull set by composite-plus-gap, not simply
+calibrate within it.
 
 \section{Test Coverage}
 

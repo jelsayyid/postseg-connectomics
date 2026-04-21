@@ -3,7 +3,7 @@
 
 Large-scale connectomics (the mapping of neural circuits from volumetric
 electron microscopy (EM) and X-ray nano-holotomography (XNH) data) requires
-automated segmentation of three-dimensional image volumes into individual neuronal
+automated segmentation of 3D image volumes into individual neuronal
 fragments. State-of-the-art automated segmenters produce fragments with high accuracy
 but inevitably introduce \emph{split errors}, where a single neuron is represented as
 multiple disconnected fragments. Correcting these errors at the scale of modern
@@ -42,10 +42,8 @@ confirming that the tuned thresholds generalize without overfitting. The pipelin
 is validated by 428 automated tests and includes a reproducible visual diagnostic
 report for per-candidate inspection.
 
-The main open challenge is precision: approximately 349{,}000 false-positive
-merge proposals are generated alongside 1{,}175 true positives at XPRESS scale
+The main open challenge is precision: 366{,}933 false-positive merge proposals
+are generated alongside 1{,}175 true positives at XPRESS scale
 (Precision $\approx$ 0.003), reflecting the difficulty of discriminating
 same-axon from different-axon long-range pairs in myelinated white matter using
-geometric features alone. A machine-learned post-filter achieves a $10\times$
-precision gain at recall 0.85, but cannot maintain recall $\geq 0.99$ with
-meaningful precision improvement.
+geometric features alone.

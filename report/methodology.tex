@@ -1,14 +1,25 @@
 \section{Design Philosophy}
 
-The pipeline is built around three principles. First, \textbf{conservative
-correctness}: a merge that should not happen is worse than a merge proposal
-that is correctly rejected, so the pipeline never forces an ambiguous decision;
-uncertainty is output explicitly as a third outcome (AMBIGUOUS). Second,
-\textbf{modularity}: each stage can be run independently, with intermediate
-results saved to disk and re-used across parameter sweeps. Third,
-\textbf{reproducibility}: all parameters are controlled through a single YAML
-configuration file, and random seeds are fixed, so the same config always
-produces the same output.
+The pipeline is structured as a graph-level proofreader: the input segmentation
+volume is reduced to a set of fragment skeletons in the first stage, and every
+subsequent decision (graph construction, candidate scoring, rule-based
+validation, assembly) operates on skeleton geometry and fragment-level summary
+statistics --- never on raw voxels. The voxel segmentation is the early input
+and the late rendering target; the computational substrate for split detection
+is the skeleton. This places the pipeline in the same tradition as NEURD
+\cite{celii2025neurd}, Joyce et al.~\cite{joyce2023mesh}, and
+ConnectomeBench~\cite{brown2025connectomebench}, which likewise reason over
+mesh or skeleton representations rather than image patches.
+
+Within this overall design, three principles govern the decision logic. First,
+\textbf{conservative correctness}: a merge that should not happen is worse
+than a merge proposal that is correctly rejected, so the pipeline never forces
+an ambiguous decision; uncertainty is output explicitly as a third outcome
+(AMBIGUOUS). Second, \textbf{modularity}: each stage can be run independently,
+with intermediate results saved to disk and re-used across parameter sweeps.
+Third, \textbf{reproducibility}: all parameters are controlled through a
+single YAML configuration file, and random seeds are fixed, so the same
+config always produces the same output.
 
 The six-stage pipeline is shown in Figure~\ref{fig:pipeline}. The remainder
 of this chapter describes each stage.
@@ -131,8 +142,9 @@ of the projected box are used as pseudo-endpoints.
 \paragraph{Fragment stitching.}
 The stitching module uses a union-find data structure to merge fragment IDs
 across chunk boundaries, relabeling fragments globally after processing all
-chunks. On the XPRESS training volume, 16{,}187 per-chunk fragments stitch
-into 12{,}935 global fragments.
+chunks. On the XPRESS training volume, 14{,}591 per-chunk fragments stitch
+into 11{,}208 global fragments; on the held-out validation volume the same
+procedure yields 12{,}935 global fragments.
 
 \section{Stage 2: Graph Construction}
 
@@ -154,8 +166,9 @@ KD-tree. All node-to-node pairs within \texttt{max\_distance\_nm} receive an
 edge. This exposes interior splits at any point along an axon.
 
 On XPRESS, switching from the endpoint graph (at 300-voxel crop resolution) to
-the skeleton-node graph (at full-volume 699-voxel resolution) raised oracle
-coverage from 23\% to 79.8\%, a 56.8-percentage-point gain in one change.
+the skeleton-node graph (at full-volume 699-voxel resolution) raised
+ground-truth coverage from 23\% to 79.8\%, a 56.8-percentage-point gain in one
+change.
 
 \paragraph{Long-range endpoint pass.}
 A supplemental second pass queries only degree-1 endpoints at a larger radius
@@ -204,9 +217,10 @@ the proximity score decays below 0.05, which dominates the composite and
 suppresses the score even when alignment and continuity are strong. To address
 this, the pipeline switches to a proximity-free weight vector
 $(0.00, 0.45, 0.40, 0.15)$ for long-range pairs, emphasizing alignment and
-continuity. This was introduced in Experiment~14 and raised recall from
-0.898 to 0.889 on the short-range subset and from a much lower baseline on
-the long-range subset.
+continuity. This was introduced in Experiment~14 and lifted ground-truth
+coverage from 81.7\% to 83.5\% by recovering 27 long-range candidates that
+had previously been suppressed by the proximity-dominated composite score
+(see Chapter~\ref{ch:results} for details).
 
 \section{Stage 4: Conservative Validation}
 
@@ -277,28 +291,55 @@ and a corrected precomputed segmentation volume with accepted merges applied.
 
 \section{Ground Truth Evaluation}
 
-\paragraph{CREMI oracle.}
-For CREMI, the ground truth is available as human-annotated segment labels. The
-evaluation oracle considers two fragments as a true merge pair if they share the
-same ground-truth label ID. Evaluation computes precision, recall, and F1 over
-accepted candidates, excluding ambiguous candidates from all denominators.
+\paragraph{The input--ground-truth contract.}
+Before describing the two benchmarks, we state explicitly what the pipeline's
+input is, what the ground truth is, and how the two are compared --- because
+the comparison is not a direct segmentation-to-segmentation overlap.
+\emph{Input}: a voxel-wise segmentation volume, the output of an automated
+segmenter with known split errors.
+\emph{Ground truth}: a set of labelled neurons that the pipeline's output is
+scored against, provided in two different forms depending on the benchmark
+(human-annotated segment labels for CREMI; manually traced skeleton graphs
+for XPRESS).
+\emph{Comparison}: the ground truth induces a set of fragment-pair labels
+$\{(A, B) : \text{fragments } A \text{ and } B \text{ should be merged}\}$.
+Each pipeline-accepted candidate $(A, B)$ is scored as a true positive if
+the pair is in this ground-truth merge set, and as a false positive otherwise.
+The pipeline's job is to propose exactly this set of pairs.
 
-\paragraph{XPRESS skeleton oracle.}
+\paragraph{CREMI ground truth.}
+For CREMI, the ground truth is available as human-annotated segment labels
+on the raw volume. Two fragments $A$ and $B$ in the pipeline's output
+constitute a ground-truth merge pair if they share the same human-annotated
+label ID (i.e., they are pieces of the same annotated neuron split by the
+pipeline's fragment extraction). Evaluation computes precision, recall, and
+F1 over accepted candidates, excluding ambiguous candidates from all
+denominators.
+
+\paragraph{XPRESS skeleton ground truth.}
 For XPRESS, ground truth is provided as manually traced skeleton graphs
-(\texttt{XPRESS\_training\_skels.npz}). For each ground-truth axon trajectory,
-the two segmentation fragments containing the most skeleton nodes on either side
-of a trajectory gap define a merge pair. The oracle is built by:
-(1) mapping skeleton node coordinates (in physical nm space) to segmentation
-label IDs by voxel lookup, accounting for the volume's physical offset;
-(2) identifying the dominant label for each trajectory segment; and
-(3) recording pairs of labels that are separated by a gap in the ground-truth
-trajectory but belong to the same axon.
+(\texttt{XPRESS\_training\_skels.npz}) --- one graph per real axon, with each
+node carrying a physical-nm coordinate. The ground-truth merge set is
+constructed by an \emph{edge-crossing} rule: for every skeleton edge $(u, v)$,
+we look up the segmentation label at $u$'s voxel and at $v$'s voxel in the
+input segmentation; if the two endpoints land in different non-background
+segment IDs $(\ell_u, \ell_v)$, then $(\ell_u, \ell_v)$ is added to the
+ground-truth merge set. In words: when a real axon traced by the annotator
+passes through two different baseline segments, those segments should be
+merged, because they are pieces of the same neuron that the segmenter has
+split. The ground-truth merge set is exactly the set of such pairs.
 
-Two metrics are reported: \emph{Coverage} (fraction of oracle pairs for which
-the pipeline generates at least one candidate), measuring graph-construction
-reach, and \emph{Recall} (fraction of covered pairs that are accepted),
-measuring validation accuracy. Precision is computed as the fraction of accepted
-candidates that correspond to oracle pairs.
+This construction (in \texttt{build\_merge\_oracle()}, named for historical
+consistency with the XPRESS reference implementation) is conservative:
+a pair enters the ground-truth set only when a skeleton edge physically
+crosses a segment boundary, not merely when two segments contain skeleton
+nodes from the same axon.
+
+Two metrics are reported: \emph{Coverage} (fraction of ground-truth pairs for
+which the pipeline generates at least one candidate), measuring
+graph-construction reach; and \emph{Recall} (fraction of covered pairs that
+are accepted), measuring validation accuracy. Precision is the fraction of
+accepted candidates that correspond to ground-truth pairs.
 
 \section{Visual Validation Report}
 \label{sec:visual-validation}
@@ -306,9 +347,10 @@ candidates that correspond to oracle pairs.
 To support qualitative inspection of pipeline behavior, we developed a diagnostic
 report generator (\texttt{scripts/generate\_visual\_report.py}) that produces a
 multi-page PDF or inline GitHub images.  For a stratified sample of candidates
-(high-confidence accepted, low-confidence accepted, borderline rejected, oracle
-false negatives, and random rejected), each candidate occupies one row of
-three panels side-by-side:
+across six categories --- \emph{ground-truth true positive} (accepted \emph{and}
+ground-truth-positive), high-confidence accepted, low-confidence accepted,
+borderline rejected, ground-truth false negative, and random rejected --- each
+candidate occupies one row of three panels side-by-side:
 
 \begin{enumerate}
   \item \textbf{Raw / Neutral:} Grayscale EM image (when available) or a
@@ -326,13 +368,14 @@ three panels side-by-side:
         composite) and the gap distance are shown in the panel title.
 
   \item \textbf{Ground Truth:} Same colorized segmentation overlaid with the
-        oracle verdict.  When a skeleton file is provided, skeleton nodes
-        belonging to the axons passing through Fragments~A or~B are highlighted
-        in bright yellow, and a dashed line marks the oracle crossing for
-        positive pairs.  A large badge labels the outcome: \textbf{TP}
-        (correct accept), \textbf{FP} (false accept), \textbf{FN} (missed
-        merge), or \textbf{TN} (correct reject), together with an explicit
-        ``Oracle: SHOULD MERGE'' or ``Oracle: NO MERGE'' annotation.
+        ground-truth verdict.  When a skeleton file is provided, skeleton
+        nodes belonging to the axons passing through Fragments~A or~B are
+        highlighted in bright yellow, and a dashed line marks the
+        ground-truth edge crossing for positive pairs.  A large badge labels
+        the outcome: \textbf{TP} (correct accept), \textbf{FP} (false
+        accept), \textbf{FN} (missed merge), or \textbf{TN} (correct reject),
+        together with an explicit ``Ground truth: SHOULD MERGE'' or
+        ``Ground truth: NO MERGE'' annotation.
 \end{enumerate}
 
 This layout gives a human inspector all information needed to assess whether
@@ -341,3 +384,27 @@ pipeline's geometric reasoning (Panel~2), and the ground-truth verdict with
 skeleton evidence (Panel~3).  Same-label candidates (two fragments from the
 same segment, which trivially score 1.0) are excluded from sampling to avoid
 contaminating the display with degenerate cases.
+
+\paragraph{Ground-truth TP as the primary scientific check.}
+The \emph{ground-truth TP} sampling category filters to the intersection of
+pipeline-accepted and ground-truth-positive candidates and samples the top
+rows by composite score. This is the only category that directly confirms
+that the pipeline's acceptance decisions correspond to real biological
+splits, rather than matching a metric count. For each ground-truth TP row,
+the inspector verifies that (1) the yellow skeleton in Panel~1 runs through
+both fragment regions, (2) the fragments look morphologically continuous in
+Panel~2, and (3) the skeleton visibly occupies both label regions in Panel~3
+with the dashed ground-truth-positive indicator.  The pipeline's best
+configuration (Experiment~24) was inspected end-to-end using this category
+and produced a dedicated PDF (\texttt{docs/visual\_report\_tp\_inspection.pdf})
+that is committed to the repository for reproducibility.
+
+\paragraph{CSV companion file.}
+Alongside the PDF, the report writes a \texttt{gt\_pair\_audit.csv} file
+containing one row per sampled candidate with the following columns:
+\texttt{candidate\_id}, \texttt{fragment\_a}, \texttt{fragment\_b},
+\texttt{label\_a}, \texttt{label\_b}, \texttt{gt\_should\_merge},
+\texttt{gt\_source}, \texttt{status}, \texttt{composite}, \texttt{alignment},
+\texttt{continuity}, and \texttt{gap}.  This enables programmatic downstream
+analysis, for example cross-referencing a visual anomaly with the underlying
+numerical scores or filtering by ground-truth agreement.

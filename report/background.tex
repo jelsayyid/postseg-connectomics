@@ -89,15 +89,15 @@ Software) challenge~\cite{xpress2023} provides:
         The volume is $699^3$ voxels at 33~nm isotropic resolution.
   \item A ground-truth skeleton dataset (\texttt{XPRESS\_training\_skels.npz}):
         manually traced skeleton graphs for the true axon trajectories, used as
-        a proofreading oracle.
+        ground-truth references for proofreading.
   \item A held-out validation volume (\texttt{baseline\_seg\_validation.h5}) with
         203 ground-truth merge pairs, used to evaluate generalization.
 \end{itemize}
 
 Ground-truth evaluation proceeds as follows: for each true axon trajectory, the
 two baseline-segmentation fragments whose label IDs contain the most ground-truth
-skeleton nodes at either end of the trajectory define an oracle merge pair. A
-pipeline \emph{covers} a pair if it generates at least one candidate connecting
+skeleton nodes at either end of the trajectory define a ground-truth merge pair.
+A pipeline \emph{covers} a pair if it generates at least one candidate connecting
 those two fragments. Of the covered pairs, those that are also accepted constitute
 true positives.
 
@@ -106,7 +106,7 @@ true positives.
 Early proofreading systems were purely manual, relying on human experts working
 in tools such as CATMAID or Neuroglancer to trace axons and correct errors. The
 scale of modern datasets has made fully manual proofreading infeasible, motivating
-a shift toward human-in-the-loop systems~\cite{dorkenwald2022cave} where
+a shift toward human-in-the-loop systems~\cite{dorkenwald2025cave} where
 algorithms propose corrections and humans verify only the uncertain cases.
 
 Automated correction proposal systems generally follow one of two paradigms:

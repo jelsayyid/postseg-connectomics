@@ -11,7 +11,7 @@ training and deploying multiple segmentation architectures.
 
 \section{Proofreading Infrastructure}
 
-The CAVE (Connectome Annotation Versioning Engine)~\cite{dorkenwald2022cave}
+The CAVE (Connectome Annotation Versioning Engine)~\cite{dorkenwald2025cave}
 system provides infrastructure for storing, versioning, and updating connectomics
 annotations at scale. CAVE implements a chunk-based merge graph (PyChunkedGraph)
 that allows atomic merge and split operations with full provenance tracking.
@@ -36,6 +36,22 @@ error sites. Our work operates entirely in the post-segmentation graph domain,
 which is faster (no re-examination of raw data) and format-agnostic (works on
 any segmentation, not only those for which raw data is available).
 
+A distinct family of recent work operates on mesh or skeleton
+representations of segmented neurons rather than on raw voxels. Joyce et
+al.~\cite{joyce2023mesh} identify false splits by detecting jagged or
+irregular geometry near neuronal tips in 3D meshes.
+NEURD~\cite{celii2025neurd} transforms 3D neuron meshes into annotated
+graph representations and applies heuristic graph rules for
+merge-error correction. ConnectomeBench~\cite{brown2025connectomebench}
+frames proofreading as a set of multimodal reasoning tasks over 3D mesh
+renderings and evaluates large multimodal models on split-error
+correction, segment-type identification, and merge-error detection.
+Our pipeline sits in the same mesh/skeleton-based tradition: the
+computational core operates on TEASAR skeleton nodes and fragment-level
+summary statistics, with the voxel-level segmentation used only as
+input (for fragment extraction) and output (for Neuroglancer rendering),
+never as a decision-making substrate.
+
 Plaza et al.~\cite{plaza2018analyzing} provide a rigorous treatment of
 segmentation quality metrics for connectomics, including the definitions of
 split and merge errors, the rand index, and the variation of information used
@@ -54,7 +70,7 @@ fragment endpoints to any point along the axon.
 
 The XPRESS challenge~\cite{xpress2023} was specifically designed to benchmark
 automated proofreading of myelinated axons in XNH data, providing standardized
-ground-truth oracle pairs for training and evaluation. To our knowledge, this
+ground-truth merge pairs for training and evaluation. To our knowledge, this
 work is among the first applications of a conservative, rule-based graph-level
 pipeline to the XPRESS benchmark, achieving Recall = 0.9958 on the training volume
 and Recall = 0.9879 on the held-out validation volume.
@@ -66,7 +82,7 @@ Contact-based graphs (edges between touching fragments) are simple but miss
 genuine splits with small gaps. Proximity-based graphs (edges between fragments
 within a distance threshold) are more general; the key design choice is what
 set of points to index. Our work systematically compares endpoint-only vs.\
-full skeleton-node indexing and quantifies the impact of each on oracle coverage,
+full skeleton-node indexing and quantifies the impact of each on ground-truth coverage,
 finding that full skeleton-node indexing is essential for interior splits.
 
 The long-range endpoint pass introduced in Experiment~11 is similar in spirit

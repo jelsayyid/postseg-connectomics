@@ -25,7 +25,7 @@ errors, is the bottleneck in every large-scale connectomics project. A skilled
 proofreader can correct perhaps a few hundred merge decisions per hour; a modern
 dataset may require millions. Automated proofreading tools that propose high-recall
 merge corrections, leaving only ambiguous cases for human review, are therefore
-essential infrastructure for the field~\cite{dorkenwald2022cave}.
+essential infrastructure for the field~\cite{dorkenwald2025cave}.
 
 \section*{The Problem This Work Addresses}
 
@@ -54,44 +54,34 @@ angles can be nearly orthogonal and geometric features are less discriminative.
 The main contributions of this work are:
 
 \begin{enumerate}
-  \item \textbf{A complete, modular post-segmentation pipeline} implemented in
+  \item A complete, modular post-segmentation pipeline implemented in
         Python, with YAML-configurable parameters, six processing stages, and
         multi-format export. The pipeline is fully open-source and validated by
         428 automated unit and integration tests.
 
-  \item \textbf{The skeleton-node graph construction method}, which indexes every
+  \item The skeleton-node graph construction method, which indexes every
         node from every TEASAR skeleton in a single KD-tree and queries the full
         node set for proximity-based edge creation. This exposes interior splits
         along long axons that an endpoint-only graph cannot represent, producing
-        a 47-percentage-point improvement in oracle coverage on XPRESS (from 23\%
+        a 47-percentage-point improvement in ground-truth coverage on XPRESS (from 23\%
         to 79.8\% in a single change).
 
-  \item \textbf{Distance-conditioned composite scoring}, which switches the
+  \item Distance-conditioned composite scoring, which switches the
         candidate score weighting from a proximity-dominated formula to a
         proximity-free, alignment-continuity-weighted formula for long-range
         pairs (gap $> 1000$~nm). This prevents the suppression of genuine long-range
         splits whose proximity score decays to near zero despite strong directional
         alignment.
 
-  \item \textbf{A three-outcome validation model} (ACCEPT / REJECT / AMBIGUOUS)
+  \item A three-outcome validation model (ACCEPT / REJECT / AMBIGUOUS)
         with seven composable, configurable rules. The AMBIGUOUS outcome
         explicitly preserves uncertainty rather than forcing binary decisions,
         making the pipeline suitable for integration with human-in-the-loop
         proofreading workflows.
 
-  \item \textbf{Quantitative evaluation on two benchmarks}: CREMI (F1 = 0.952,
+  \item Quantitative evaluation on two benchmarks: CREMI (F1 = 0.952,
         Precision = 1.000) and XPRESS (Recall = 0.9958 on training, Recall = 0.9879
-        on a fully held-out validation volume), with 25 documented experiments
+        on a fully held-out validation volume), with 28 documented experiments
         tracing the development of each improvement.
 \end{enumerate}
 
-\section*{Report Organization}
-
-Chapter~\ref{ch:background} provides background on connectomics imaging, automated
-segmentation, and the XPRESS challenge. Chapter~\ref{ch:methodology} describes
-the pipeline design and all algorithmic components in detail.
-Chapter~\ref{ch:results} presents quantitative results across all experiments.
-Chapter~\ref{ch:relatedwork} surveys related proofreading and graph-construction
-approaches. Chapter~\ref{ch:conclusion} summarizes the main findings and
-challenges, and Chapter~\ref{ch:futurework} outlines the plan for the remainder
-of the semester.
