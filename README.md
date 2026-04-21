@@ -41,7 +41,46 @@ Segmentation Volume → Fragment Extraction → Graph Construction → Candidate
 
 Full 699³ voxel volume, 33 nm isotropic resolution, myelinated cortical axons. Evaluation uses skeleton-based ground truth (XPRESS challenge). This is the primary domain-appropriate benchmark — automated (imperfect) segmentation input, with true split errors along axon interiors that the pipeline must detect and propose to merge.
 
-The held-out validation volume was never seen during development. The 5 remaining training false negatives and 2 validation false negatives all fail the CurvatureRule at gaps of 66–987 nm where the direction estimate is unreliable; no MinGapRule or SizeDiscrepancyRule false negatives remain. Low precision reflects the fundamental challenge of discriminating same-axon from different-axon long-range pairs at scale.
+The held-out validation volume was never seen during development. The 5 remaining training false negatives and 2 validation false negatives all fail the CurvatureRule at gaps of 66–987 nm where the direction estimate is unreliable; no MinGapRule or SizeDiscrepancyRule false negatives remain. Low precision reflects the fundamental challenge of discriminating same-axon from different-axon long-range pairs at scale — see the precision-characterization analyses below.
+
+## Precision Characterization (Experiments 26–28)
+
+Three post-hoc analyses on the Experiment 24 training output localize the precision problem and bound what any gap-aware strategy can achieve. Each is reproducible from the shipped `connections.csv` export without re-running the pipeline.
+
+### Exp 26 — Precision is an order of magnitude worse in the long-range regime
+
+| Gap bin (nm) | Candidates | TP | FP | Precision |
+|--------------|-----------:|---:|---:|-----------|
+| [300, 500)   | 20,418     | 594| 19,745  | **0.0292** (best) |
+| [1500, 2000) | 222,788    | 203| 222,572 | **0.0009** (worst) |
+| **Total**    | 369,570    | 1,248 | 366,933 | 0.0034 |
+
+The `[1500, 2000)` nm bin alone contains **60.7% of all false positives** but only 16.3% of true positives. Validation reproduces the same shape, confirming this is a domain property (myelinated white-matter axon density), not a training-volume artifact. Regenerate with `python scripts/gap_stratified_precision.py`.
+
+### Exp 27 — A neighborhood-density feature is a real but partial discriminator
+
+For each accepted candidate, count other fragment centroids within a radius of the pair's midpoint. TP density is 25–28% lower than FP density on average at R = 1500 nm, and using density as a re-ranker gains:
+
+| Recall target | Composite baseline | density\_max\_1500 | Relative gain |
+|---------------|-------------------:|-------------------:|--------------:|
+| 0.99          | 0.0034             | 0.0035             | +4%           |
+| 0.90          | 0.0034             | 0.0045             | +33%          |
+| 0.85          | 0.0033             | **0.0049**         | **+49%**      |
+
+The effect decays sharply at recall 0.99 — density alone does not break the precision ceiling at the pipeline's operating point. Regenerate with `python scripts/neighborhood_density_reranker.py`.
+
+### Exp 28 — The (composite, gap_bin) feature pair has a structural precision ceiling
+
+A per-bin threshold allocation using ground truth labels to set the ceiling for *any* threshold-based strategy on these features:
+
+| Recall target | Global baseline | Per-bin ceiling | Relative gain |
+|---------------|----------------:|---------------:|--------------:|
+| 0.99          | 0.0034          | 0.0034         | +1.3%         |
+| 0.90          | 0.0034          | 0.0051         | +51%          |
+| 0.85          | 0.0033          | 0.0068         | **+104%**     |
+| 0.70          | 0.0032          | **0.0169**     | **+421%**     |
+
+**At recall 0.99 the ceiling is nearly flat** — the hardest-to-recover 1% of TPs sit in the same gap bins as the FP mass, so no per-bin reallocation can help. This explains why Exp 20's ML filter could not maintain recall ≥ 0.99 with meaningful precision gain: it is a structural limit of (composite, gap_bin), not an ML-architecture failure. Meaningful high-recall precision improvement requires features *orthogonal* to this subspace — Exp 20's per-fragment-degree signal was one such feature and it reached 0.037 at recall 0.85, 5× above the per-bin ceiling of 0.007 at the same recall. Regenerate with `python scripts/per_bin_threshold.py`.
 
 ## What the Pipeline Sees
 
@@ -85,12 +124,12 @@ Seven built-in rules, each returning ACCEPT / REJECT / AMBIGUOUS with a confiden
 
 | Rule | Description |
 |------|-------------|
+| `MinGapRule` | Reject candidates with gap below a minimum (disabled by default: `min_gap_nm=0`) |
 | `MaxDistanceRule` | Hard-reject if gap exceeds physical distance limit |
 | `CurvatureRule` | Reject if junction angle exceeds threshold; optionally skips check for long-range pairs where the endpoint-centroid direction estimate is unreliable (`skip_distance_nm`) |
 | `DirectionReversalRule` | Reject if fragments point away from each other |
 | `SizeDiscrepancyRule` | Reject if radius ratio is implausible |
-| `BranchingLimitRule` | Reject if merge would create excessive branching |
-| `OverlapRule` | Reject if fragments significantly overlap (likely a merge error) |
+| `BranchingLimitRule` | Reject if merge would connect to more already-accepted partners than a limit |
 | `CompositeScoreRule` | Hard-reject if composite score falls below a minimum |
 
 All rules are configurable via YAML and composable; the validation pipeline short-circuits on any hard REJECT.
@@ -198,9 +237,13 @@ scripts/
 | GT FN | dark orange | Rejected but GT says should merge |
 | Random rejected | gray | Random sample of rejected |
 
-**The Ground-truth TP category is the most important scientific validation step:** it directly confirms that each pipeline-accepted merge is a real biological split — not just a metric count. For each blue-bordered row, verify that (1) the yellow skeleton in Panel 1 runs through both fragments, (2) the fragments look morphologically continuous in Panel 2, and (3) the skeleton visibly occupies both label regions in Panel 3 with the dashed GT crossing line.
+**Ground-truth semantics (XPRESS):** A candidate is GT-positive ("GT SHOULD MERGE") when its `(label_a, label_b)` pair appears in the skeleton-derived merge set. That set is built by `build_merge_oracle()` in `xpress_ground_truth.py`: for each axon skeleton edge whose endpoints map to *different* non-background segment IDs in the baseline segmentation, that `(seg_a, seg_b)` pair is added (edge-crossing criterion). The dashed line shown for TP/FN rows in Panel 3 is a GT-positive *indicator* connecting fragment centroids — it is not a direct rendering of the skeleton edge itself. To verify anatomical reality, inspect the yellow skeleton overlay in Panel 1 and Panel 3: the skeleton should visibly run through both fragment regions. Pipeline decisions are based on skeleton geometry (alignment, continuity, curvature scores) and rule-based filters; ground-truth labels play no role in the pipeline decision itself.
+
+**The Ground-truth TP category is the most important scientific validation step:** it directly confirms that each pipeline-accepted merge is a real biological split — not just a metric count. For each blue-bordered row, verify that (1) the yellow skeleton in Panel 1 runs through both fragments, (2) the fragments look morphologically continuous in Panel 2, and (3) the skeleton visibly occupies both label regions in Panel 3 with the dashed GT-positive indicator.
 
 This inspection is the final non-automated layer of end-to-end validation and should be run after any experiment that changes accepted-candidate composition.
+
+The report also writes a `gt_pair_audit.csv` alongside the PDF (columns: `candidate_id`, `fragment_a`, `fragment_b`, `label_a`, `label_b`, `gt_should_merge`, `gt_source`, `status`, `composite`, `alignment`, `continuity`, `gap`) for programmatic downstream analysis.
 
 ```bash
 # XPRESS training — ground-truth TP inspection (primary use case)
@@ -247,9 +290,12 @@ pytest tests/ --cov=connectomics_pipeline --cov-report=term-missing  # with cove
 ## Documentation
 
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — Full system design, data flow, and module interfaces
-- [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) — All pipeline runs with quantitative results (Experiments 1–23)
+- [`docs/EXPERIMENT_LOG.md`](docs/EXPERIMENT_LOG.md) — All pipeline runs with quantitative results (Experiments 1–28)
 - [`docs/TESTING.md`](docs/TESTING.md) — Test structure, fixtures, and how to add tests
 - [`docs/TESTING_PLAN.md`](docs/TESTING_PLAN.md) — Phase-by-phase validation strategy and status
+- [`docs/gap_stratified_precision.csv`](docs/gap_stratified_precision.csv) + [`.png`](docs/gap_stratified_precision.png) — per-bin precision/recall analysis of the Experiment 24 training output (Experiment 26). Re-run with `python scripts/gap_stratified_precision.py`.
+- [`docs/density_summary.csv`](docs/density_summary.csv) + [`density_pr_curve.png`](docs/density_pr_curve.png) + [`density_distribution.png`](docs/density_distribution.png) — neighborhood-density re-ranker evaluation (Experiment 27). Confirms density is a real signal (+49% precision at recall 0.85) but decays to +4–6% at recall 0.99. Re-run with `python scripts/neighborhood_density_reranker.py`.
+- [`docs/per_bin_threshold_summary.csv`](docs/per_bin_threshold_summary.csv) + [`per_bin_threshold_pr.png`](docs/per_bin_threshold_pr.png) — per-bin threshold precision ceiling (Experiment 28). Establishes that the (composite, gap_bin) feature pair has a 1.3% ceiling at recall 0.99 and a 421% ceiling at recall 0.70. Re-run with `python scripts/per_bin_threshold.py`.
 
 ## References
 
@@ -257,4 +303,4 @@ pytest tests/ --cov=connectomics_pipeline --cov-report=term-missing  # with cove
 - Lin et al., 2021 — PyTorch Connectomics (arXiv:2112.05754)
 - Dorkenwald et al., 2025 — CAVE (Nature Methods)
 - MICrONS Consortium, 2025 — Functional Connectomics (Nature)
-- Plaza et al., 2018 — Analyzing Image Segmentation for Connectomics (BMC Medical Imaging)
+- Plaza & Funke, 2018 — Analyzing Image Segmentation for Connectomics (Frontiers in Neural Circuits)

@@ -318,7 +318,7 @@ class ValidationResult:
 | `DirectionReversalRule` | Fragments point away from each other |
 | `SizeDiscrepancyRule` | Fragment radii are wildly different |
 | `BranchingLimitRule` | Accepting would create implausible branching patterns |
-| `OverlapRule` | Fragments' bounding boxes overlap excessively (merge error) |
+| `MinGapRule` | Gap falls below `min_gap_nm` (rule disabled by default: `min_gap_nm=0`) |
 | `CompositeScoreRule` | Composite candidate score below threshold |
 
 **Validation pipeline:**
